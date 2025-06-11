@@ -94,7 +94,8 @@ Les étudiants SLAM devront être capables de se connecter à votre instance en 
 
 ### Objectifs de la journée :
 
-* Cloner le dépôt GitHub fourni et comprendre le code Python du serveur minimal.
+* Forker et cloner le dépôt GitHub contenant le serveur minimal
+* Comprendre le code Python fourni et son fonctionnement général
 * Lancer le serveur en local sur votre machine ou VM Linux.
 * Tester le serveur avec 2 clients (en local ou en LAN).
 * Identifier et documenter les fonctionnalités existantes.
@@ -102,11 +103,14 @@ Les étudiants SLAM devront être capables de se connecter à votre instance en 
 
 ### 🔄 Tâches à réaliser :
 
-1. **Cloner le dépôt du projet serveur**
+1. **Forker puis cloner le dépôt du projet serveur**
+
+- Forkez le dépôt sur votre propre compte GitHub (voir section précédente)
+- Clonez ensuite votre fork depuis votre terminal :
 
 ```bash
 cd ~/BTS_SIO
-git clone https://github.com/AstrowareConception/classcord-server.git
+git clone https://github.com/votre-identifiant/classcord-server.git
 cd classcord-server
 ```
 
