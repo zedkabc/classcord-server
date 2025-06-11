@@ -484,20 +484,26 @@ docker run -it --rm -p 12345:12345 classcord-server
 
 ## 🎓 Compétences mobilisées (Référentiel BTS SIO – SISR)
 
-| Bloc de compétences | Référence | Intitulé                                                      |
-|---------------------|-----------|----------------------------------------------------------------|
-| Bloc 1              | A1.1.1    | Analyse du cahier des charges d’un service à produire         |
-| Bloc 1              | A1.2.1    | Élaboration d’une solution d’infrastructure                    |
-| Bloc 2              | A2.3.1    | Installation et configuration d’éléments d’infrastructure      |
-| Bloc 2              | A2.3.2    | Déploiement d’un service                                       |
-| Bloc 2              | A2.3.3    | Administration d’un service réseau                            |
-| Bloc 2              | A2.3.4    | Sécurisation d’un service réseau                              |
-| Bloc 3              | A3.1      | Supervision et maintenance d’une infrastructure                |
-| Bloc 3              | A3.2      | Sauvegarde, restauration et audit                             |
-| Bloc 4              | A4.1      | Gestion des accès et des authentifications                    |
-| Bloc 4              | A4.3      | Mise en place de la traçabilité et de l’alerte                |
-| Bloc 5              | A5.1.1    | Mise en place de la documentation technique                   |
-| Bloc 5              | A5.2.3    | Présentation d’un service à un utilisateur                    |
+| Bloc de compétences | Référence | Intitulé                                                                                   |
+|---------------------|-----------|---------------------------------------------------------------------------------------------|
+| Concevoir une solution d’infrastructure réseau |
+|                     | ✔         | Analyser un besoin exprimé et son contexte juridique                                       |
+|                     | ✔         | Étudier l’impact d’une évolution d’un élément d’infrastructure sur le système informatique |
+|                     | ✔         | Élaborer un dossier de choix d’une solution d’infrastructure et rédiger les spécifications techniques |
+|                     | ✔         | Choisir les éléments nécessaires pour assurer la qualité et la disponibilité d’un service  |
+|                     | ✔         | Maquetter et prototyper une solution d’infrastructure permettant d’atteindre la qualité de service |
+|                     | ✔         | Déterminer et préparer les tests nécessaires à la validation de la solution                |
+| Installer, tester et déployer une solution d’infrastructure réseau |
+|                     | ✔         | Installer et configurer des éléments d’infrastructure                                      |
+|                     | ✔         | Installer et configurer des éléments nécessaires pour assurer la continuité des services   |
+|                     | ✔         | Rédiger ou mettre à jour la documentation technique et utilisateur                         |
+|                     | ✔         | Tester l’intégration et l’acceptation d’une solution d’infrastructure                      |
+|                     | ✔         | Déployer une solution d’infrastructure                                                     |
+| Exploiter, dépanner et superviser une solution d’infrastructure réseau |
+|                     | ✔         | Administrer sur site et à distance des éléments d’une infrastructure                       |
+|                     | ✔         | Automatiser des tâches d’administration                                                    |
+|                     | ✔         | Gérer des indicateurs et des fichiers d’activité des éléments d’une infrastructure         |
+|                     | ✔         | Identifier, qualifier, évaluer et réagir face à un incident ou à un problème              |
+|                     | ✔         | Évaluer, maintenir et améliorer la qualité d’un service                                    |
 
-> Ce projet peut être valorisé en E4 (U41 - Projets SISR) ou en E5 (U51 - Parcours SISR)
 
