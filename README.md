@@ -410,3 +410,25 @@ crontab -e
 * Gérer son cycle de vie et son interopérabilité
 * Produire une documentation professionnelle
 * Présenter un projet structuré et cohérent à un jury BTS SIO
+
+* ---
+
+## 🎓 Compétences mobilisées (Référentiel BTS SIO – SISR)
+
+| Bloc de compétences | Référence | Intitulé                                                      |
+|---------------------|-----------|----------------------------------------------------------------|
+| Bloc 1              | A1.1.1    | Analyse du cahier des charges d’un service à produire         |
+| Bloc 1              | A1.2.1    | Élaboration d’une solution d’infrastructure                    |
+| Bloc 2              | A2.3.1    | Installation et configuration d’éléments d’infrastructure      |
+| Bloc 2              | A2.3.2    | Déploiement d’un service                                       |
+| Bloc 2              | A2.3.3    | Administration d’un service réseau                            |
+| Bloc 2              | A2.3.4    | Sécurisation d’un service réseau                              |
+| Bloc 3              | A3.1      | Supervision et maintenance d’une infrastructure                |
+| Bloc 3              | A3.2      | Sauvegarde, restauration et audit                             |
+| Bloc 4              | A4.1      | Gestion des accès et des authentifications                    |
+| Bloc 4              | A4.3      | Mise en place de la traçabilité et de l’alerte                |
+| Bloc 5              | A5.1.1    | Mise en place de la documentation technique                   |
+| Bloc 5              | A5.2.3    | Présentation d’un service à un utilisateur                    |
+
+> Ce projet peut être valorisé en E4 (U41 - Projets SISR) ou en E5 (U51 - Parcours SISR)
+
