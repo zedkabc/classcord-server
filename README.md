@@ -469,3 +469,30 @@ crontab -e
 * Gérer son cycle de vie et son interopérabilité
 * Produire une documentation professionnelle
 * Présenter un projet structuré et cohérent à un jury BTS SIO
+
+* ## 🎓 Compétences mobilisées (Référentiel BTS SIO – SISR)
+
+| Bloc de compétences | Référence | Intitulé                                                                                   |
+|---------------------|-----------|---------------------------------------------------------------------------------------------|
+| Concevoir une solution d’infrastructure réseau |
+|                     | ✔         | Analyser un besoin exprimé et son contexte juridique                                       |
+|                     | ✔         | Étudier l’impact d’une évolution d’un élément d’infrastructure sur le système informatique |
+|                     | ✔         | Élaborer un dossier de choix d’une solution d’infrastructure et rédiger les spécifications techniques |
+|                     | ✔         | Choisir les éléments nécessaires pour assurer la qualité et la disponibilité d’un service  |
+|                     | ✔         | Maquetter et prototyper une solution d’infrastructure permettant d’atteindre la qualité de service |
+|                     | ✔         | Déterminer et préparer les tests nécessaires à la validation de la solution                |
+| Installer, tester et déployer une solution d’infrastructure réseau |
+|                     | ✔         | Installer et configurer des éléments d’infrastructure                                      |
+|                     | ✔         | Installer et configurer des éléments nécessaires pour assurer la continuité des services   |
+|                     | ✔         | Rédiger ou mettre à jour la documentation technique et utilisateur                         |
+|                     | ✔         | Tester l’intégration et l’acceptation d’une solution d’infrastructure                      |
+|                     | ✔         | Déployer une solution d’infrastructure                                                     |
+| Exploiter, dépanner et superviser une solution d’infrastructure réseau |
+|                     | ✔         | Administrer sur site et à distance des éléments d’une infrastructure                       |
+|                     | ✔         | Automatiser des tâches d’administration                                                    |
+|                     | ✔         | Gérer des indicateurs et des fichiers d’activité des éléments d’une infrastructure         |
+|                     | ✔         | Identifier, qualifier, évaluer et réagir face à un incident ou à un problème              |
+|                     | ✔         | Évaluer, maintenir et améliorer la qualité d’un service                                    |
+
+
+
