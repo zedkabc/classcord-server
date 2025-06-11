@@ -165,6 +165,8 @@ sudo ufw allow 12345/tcp
 * Recevoir et transmettre des messages JSON
 * Voir les messages apparaître dans la console
 
+---
+
 ## 📖 Jour 2 - Mardi : Déploiement sur le réseau, lancement en service et documentation d’accès
 
 ### Objectifs de la journée :
@@ -246,6 +248,8 @@ sudo systemctl enable --now classcord.service
 * Le rendre accessible et maintenu automatiquement
 * Fournir une documentation claire à un tiers technique
 
+---
+
 ## 📗 Jour 3 - Mercredi : Sécurisation active, journalisation et sauvegardes
 
 ### Objectifs de la journée :
@@ -322,21 +326,22 @@ crontab -e
 * Utiliser fail2ban pour bloquer des comportements suspects
 * Expliquer les choix de sécurité appliqués au serveur
 
-## 📘 Jour 4 - Jeudi : Améliorations fonctionnelles et personnalisation du serveur
+---
+
+## 📘 Jour 4 - Jeudi : Améliorations fonctionnelles, personnalisation et préparation à la containerisation
 
 ### Objectifs de la journée :
 
 * Ajouter des fonctionnalités serveur utiles aux clients (ex : canaux, historique, messages système).
 * Rendre les données persistantes (comptes, logs, messages).
 * Permettre une administration distante minimale (console, interface API, accès restreint).
-* Enrichir l’expérience des utilisateurs SLAM côté serveur.
+* Commencer la containerisation du projet avec Docker.
 
 ### 🔄 Tâches à réaliser :
 
 1. **Ajouter un système de canaux de discussion**
 
 * Adapter le traitement JSON côté serveur pour gérer plusieurs canaux (ex : `#général`, `#dev`, `#admin`).
-* Exemple de message attendu :
 
 ```json
 {
@@ -348,109 +353,133 @@ crontab -e
 }
 ```
 
-* Adapter la logique d’aiguillage pour ne diffuser un message qu’aux clients connectés au bon canal.
+* Mettre à jour la logique serveur pour ne diffuser un message qu’aux utilisateurs du même canal.
 
-2. **Passer à un stockage persistant des utilisateurs/messages**
+2. **Passer à un stockage persistant avec SQLite**
 
-* Remplacer le fichier `users.pkl` par une base SQLite simple (`sqlite3`).
-* Créer deux tables : `users` et `messages`, avec horodatage.
-* Bonus : créer un script d’export des messages en CSV ou JSON.
+* Remplacer le fichier `users.pkl` par une base SQLite.
+* Créer des tables `users`, `messages`, avec horodatage.
+* Bonus : script d’export CSV ou JSON.
 
-3. **Personnaliser les messages système**
+3. **Ajouter des messages système personnalisés**
 
-* Ajouter une fonction `send_system_message(to, content)`.
-* Utiliser-la pour afficher : nouveaux arrivants, départs, alertes serveur, etc.
+* Créer une fonction `send_system_message(to, content)` pour : arrivées, départs, erreurs, etc.
 
-4. **Améliorer le logging technique du serveur**
+4. **Améliorer les logs techniques**
 
-* Enrichir les logs avec les types de messages, noms d’utilisateurs, IP, erreurs détectées.
-* Générer un fichier `audit.log` ou `debug.log` selon le niveau.
+* Ajouter IP, horodatage, nature du message, erreurs détectées.
+* Générer un fichier `audit.log` structuré.
 
-5. **Bonus : créer une mini interface d’administration en ligne de commande**
+5. **Bonus : créer une interface d’administration CLI**
 
-* Interface texte côté serveur (ex : menu avec curses ou simple `input()`)
-* Fonctions : afficher les clients actifs, stopper un canal, renvoyer une alerte globale, etc.
+* Menu texte : clients actifs, changement de canal, arrêt serveur…
 
-### 📄 Livrables attendus en fin de journée :
+---
 
-* Serveur enrichi avec gestion des canaux
-* Base SQLite fonctionnelle avec utilisateurs et messages
-* Personnalisation visible des messages système
-* Log technique amélioré
-* Documentation `FONCTIONNALITES.md` décrivant les ajouts faits au serveur
-* README mis à jour avec captures ou exemples d'utilisation
+### 🐳 Partie Docker (initiation à la containerisation)
 
-### ✅ En fin de journée vous devez savoir :
+6. **Créer un `Dockerfile` fonctionnel**
 
-* Modifier la logique interne du serveur pour introduire de nouvelles fonctionnalités
-* Gérer un stockage persistant avec SQLite
-* Fournir une API ou un menu technique rudimentaire pour les administrateurs
-* Documenter proprement les fonctionnalités ajoutées
+```Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY . /app
+RUN pip install --no-cache-dir -r requirements.txt || true
+EXPOSE 12345
+CMD ["python", "server_classcord.py"]
+```
 
-## 📙 Jour 5 - Vendredi : Finalisation, interopérabilité, démonstration et clôture de la RP
+7. **Construire et tester votre image Docker localement**
+
+```bash
+docker build -t classcord-server .
+docker run -it --rm -p 12345:12345 classcord-server
+```
+
+8. **Bonus : Ajouter un `docker-compose.yml` pour simplifier**
+
+* Exposition du port, volume pour les logs, mode redémarrage automatique.
+
+9. **Créer un fichier `CONTAINERS.md`**
+
+* Instructions de build, exécution, ports, contraintes réseau (bridge, firewall), tests croisés avec clients.
+
+---
+
+### 📄 Livrables attendus :
+
+* Fonctionnalités enrichies (canaux, persistance, logs)
+* Fichier `Dockerfile` fonctionnel
+* Serveur lancé avec Docker en local
+* Début de documentation `CONTAINERS.md`
+
+---
+
+## 📙 Jour 5 - Vendredi : Finalisation, interopérabilité, démonstration, containerisation et clôture de la RP
 
 ### Objectifs de la journée :
 
-* Valider le bon fonctionnement global du serveur avec plusieurs clients SLAM.
-* Documenter de façon claire et professionnelle l’ensemble des choix techniques.
-* Préparer une démonstration complète (serveur + 2 clients minimum).
-* Organiser, nettoyer et finaliser votre dépôt GitHub.
-* Identifier les apports réels au regard du référentiel BTS SIO.
+* Finaliser toutes les fonctionnalités serveur.
+* Assurer l'interopérabilité avec plusieurs clients SLAM.
+* Valider le fonctionnement de l'image Docker.
+* Rédiger une documentation claire et professionnelle.
+* Préparer la démonstration technique et la fiche RP.
 
 ### 🔄 Tâches à réaliser :
 
-1. **Effectuer des tests croisés d’interopérabilité**
+1. **Tester en réseau avec des clients SLAM**
 
-* Deux clients SLAM (minimum) doivent pouvoir se connecter à votre serveur.
-* Tester toutes les fonctionnalités implémentées (MP, canaux, statuts, etc.).
-* Vérifier la cohérence des logs, l’affichage côté client, et la stabilité réseau.
+* 2 clients minimum connectés
+* Test : connexion, canaux, statuts, messages, erreurs gérées
+* Vérifier logs et stabilité du service
 
-2. **Documenter proprement tout le projet**
+2. **Finaliser votre image Docker**
 
-* Finaliser votre `README.md` avec :
+* Vérifier que tout fonctionne en conteneur
+* Documenter : lancement, ports, limites
+* Tester sur une autre machine si possible
 
-  * Description globale du projet
-  * Architecture du serveur (technique + services)
-  * Capture d’écran de logs, connexion, messages
-  * Instructions d’installation/déploiement pour un autre étudiant
-* Compléter les fichiers `SECURITE.md`, `FONCTIONNALITES.md`, `DOC_CONNEXION.md` si utilisés
+3. **Documenter votre projet de manière professionnelle**
 
-3. **Nettoyer et organiser le dépôt Git**
+* Fichier `README.md` à jour avec :
 
-* Supprimer les fichiers inutiles ou temporaires
-* Organiser les scripts (répertoire `scripts/` ou `utils/` si besoin)
-* Ajouter des commentaires aux parties importantes du code
-* Créer des tags Git (`v1.0`, etc.) si applicable
+  * Objectifs, architecture, services
+  * Screenshots (console, logs, client connecté)
+  * Explication complète du `Dockerfile` et de l’usage Docker
+* Mettre à jour `SECURITE.md`, `FONCTIONNALITES.md`, `CONTAINERS.md`
 
-4. **Préparer une démonstration technique claire**
+4. **Nettoyer le dépôt GitHub**
 
-* Lancer le serveur devant un formateur
-* Connecter au moins 2 clients et démontrer :
+* Supprimer les fichiers inutiles
+* Réorganiser si besoin (scripts, config, backups)
+* Ajouter des tags, commits clairs, structure finale
 
-  * authentification ou accès invité
-  * envoi de message global et MP
-  * affichage dynamique des statuts
-  * journalisation active côté serveur
-  * preuve de sécurité minimale (fail2ban, logs, etc.)
+5. **Préparer la démonstration**
 
-5. **Réfléchir à l’évaluation en tant que Réalisation Professionnelle**
+* Scénario complet : lancement serveur, connexion de clients, test des canaux, arrêt propre
+* Présenter le fonctionnement Docker si implémenté
 
-* Remplir la fiche RP avec :
+6. **Remplir la fiche RP**
 
-  * contexte, objectifs, livrables, contraintes
-  * outils et méthodes utilisés
-  * analyse critique du projet (apports, limites)
+* Contexte, objectifs, livrables, apports
+* Méthodes et outils utilisés (Docker, services, supervision, logs…)
 
-### 📄 Livrables attendus en fin de journée :
+---
 
-* Projet complet sur GitHub avec README finalisé
-* Documentation claire, lisible, téléchargeable (PDF ou Markdown)
-* Preuves de fonctionnement (captures, logs, exports SQL)
-* Serveur prêt pour démonstration finale
-* Fiche de réalisation professionnelle prête à l'impression ou intégrée au dépôt
+### 📄 Livrables attendus :
+
+* Serveur finalisé et conteneurisé
+* Dépôt Git complet, structuré, documenté
+* Documentation claire, lisible, exécutable
+* Fiche RP prête à l'impression
+
+---
 
 ### ✅ En fin de semaine vous devez être capables de :
 
+* Gérer et documenter un service réseau complet
+* Travailler avec Git et Docker de manière professionnelle
+* Réaliser une démonstration technique en réseau
 * Déployer un service réseau sécurisé et documenté
 * Gérer son cycle de vie et son interopérabilité
 * Produire une documentation professionnelle
