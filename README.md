@@ -73,6 +73,8 @@ git push origin main
   * les **services mis en place**
   * la **documentation d’accès au serveur**
 
+Pour l'occasion, vous apprendrez la syntaxe markdown (md) pour rédiger la documentation.
+
 ---
 
 Chaque soir, vous devez effectuer un `git push` avec README mis à jour (journal de bord, état du serveur, tests réalisés).
