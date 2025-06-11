@@ -16,7 +16,7 @@ Votre mission :
 * Rendre ce serveur accessible sur le réseau local de façon sécurisée et fiable.
 * Permettre à vos camarades de s’y connecter facilement, avec une documentation claire.
 
-Le serveur vous est fourni au format Python (multi-clients avec sockets TCP). Il est volontairement simplifié pour pouvoir être personnalisé et amélioré.
+Le serveur vous est fourni au format Python (multi-clients avec sockets TCP). Il est volontairement simplifié pour pouvoir être personnalisé et amélioré. Votre formateur aura aussi un client opérationnel, prêt à se connecter sur votre propre serveur pour que vous puissiez tester votre travail.
 
 ---
 
@@ -33,49 +33,30 @@ Le serveur vous est fourni au format Python (multi-clients avec sockets TCP). Il
 
 ---
 
+## 🖥️ Préparation de l’environnement
+
+Avant de commencer les tâches du projet, chaque étudiant doit disposer d’un environnement Linux prêt à l’emploi.
+
+> 💡 **Si vous travaillez sur Windows ou macOS**, vous devez **créer une machine virtuelle Linux (Ubuntu, Debian, etc.)**. C’est cette VM qui hébergera le serveur Python et sur laquelle vous exécuterez toutes les commandes Linux.
+
+Outils recommandés :
+
+* VirtualBox ou VMware
+* ISO Ubuntu Server 22.04 ou Debian 12
+
+Une fois votre VM installée, assurez-vous que :
+
+* Vous pouvez accéder à Internet depuis la VM
+* Vous pouvez échanger des fichiers entre hôte et VM (via dossier partagé ou GitHub)
+* Vous avez installé Python 3.10+, `git`, `ufw`, etc.
+
+---
+
 ## 📅 Organisation de la semaine
 
 Chaque journée cible une compétence du bloc infrastructure ou sécurité. Vous devez livrer à chaque étape un serveur fonctionnel et documenté, opérationnel sur le réseau local.
 
-Un repository GitHub contient les consignes et le code de base du serveur : [https://github.com/AstrowareConception/classcord-server](https://github.com/AstrowareConception/classcord-server)
-
-> 🎯 **Chaque étudiant doit travailler dans un dépôt GitHub personnel issu d’un fork de ce projet.**
-
-### Étapes à suivre :
-
-1. **Forkez** le dépôt [classcord-server](https://github.com/AstrowareConception/classcord-server) sur votre compte GitHub.
-2. Sur votre fork, cliquez sur **Code > HTTPS** et copiez l’URL.
-3. Ouvrez un terminal Linux (ou VSCode en SSH) et tapez :
-
-```bash
-cd ~/BTS_SIO
-git clone https://github.com/votre-identifiant/classcord-server.git
-cd classcord-server
-```
-
-4. Enregistrez votre travail régulièrement :
-
-```bash
-git add .
-git commit -m "ex: configuration du pare-feu + test local"
-git push origin main
-```
-
----
-
-### 📌 Contraintes GitHub pour la validation
-
-* Travail **exclusivement sur votre fork GitHub**
-* Projet avec **au moins 1 commit par jour, clair et structuré**
-* Un `README.md` personnel contenant :
-
-  * vos **nom et prénom**
-  * les **services mis en place**
-  * la **documentation d’accès au serveur**
-
-Pour l'occasion, vous apprendrez la syntaxe markdown (md) pour rédiger la documentation.
-
----
+Un répertoire GitHub vous est attribué : [https://github.com/AstrowareConception/classcord-server](https://github.com/AstrowareConception/classcord-server)
 
 Chaque soir, vous devez effectuer un `git push` avec README mis à jour (journal de bord, état du serveur, tests réalisés).
 
@@ -91,8 +72,7 @@ Les étudiants SLAM devront être capables de se connecter à votre instance en 
 
 ### Objectifs de la journée :
 
-* Forker et cloner le dépôt GitHub contenant le serveur minimal
-* Comprendre le code Python fourni et son fonctionnement général
+* Cloner le dépôt GitHub fourni et comprendre le code Python du serveur minimal.
 * Lancer le serveur en local sur votre machine ou VM Linux.
 * Tester le serveur avec 2 clients (en local ou en LAN).
 * Identifier et documenter les fonctionnalités existantes.
@@ -100,18 +80,19 @@ Les étudiants SLAM devront être capables de se connecter à votre instance en 
 
 ### 🔄 Tâches à réaliser :
 
-1. **Forker puis cloner le dépôt du projet serveur**
+**Partie 1 : Tests finaux et documentation**
 
-- Forkez le dépôt sur votre propre compte GitHub (voir section précédente)
-- Clonez ensuite votre fork depuis votre terminal :
+**Partie 1 : Ajouts fonctionnels**
+
+1. **Cloner le dépôt du projet serveur**
 
 ```bash
 cd ~/BTS_SIO
-git clone https://github.com/votre-identifiant/classcord-server.git
+git clone https://github.com/AstrowareConception/classcord-server.git
 cd classcord-server
 ```
 
-2. **Lire et comprendre le code Python (`server_classcord.py`)**
+2. **Lire et comprendre le code Python (****`server_classcord.py`****)**
 
 * Identifier les fonctions principales : `load_users`, `handle_client`, `broadcast`, etc.
 * Noter les ports utilisés, les fichiers utilisés (`users.pkl`), les protocoles.
@@ -123,13 +104,13 @@ python3 server_classcord.py
 ```
 
 * Le serveur doit être en écoute sur le port 12345 par défaut.
-* Sur une autre machine ou terminal, lancer un client compatible (ex: client SLAM).
+* Sur une autre machine ou terminal, lancer un client compatible (ex: client SLAM) ou demander à votre formateur de se connecter avec son client.
 
 4. **Faire un test de connexion**
 
 * Depuis un client : se connecter en mode "invité"
 * Envoyer un message : vérifier qu'il est reçu
-* Ouvrir un deuxième client : tester les communications inter-clients
+* Ouvrir un deuxième client : tester les communications inter-clients (si supporté par les clients)
 
 5. **Ajouter un journal de bord technique (dans le README)**
 
