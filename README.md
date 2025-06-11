@@ -439,7 +439,7 @@ crontab -e
   * journalisation active côté serveur
   * preuve de sécurité minimale (fail2ban, logs, etc.)
 
-6. **Finaliser et tester la version Docker**
+5. **Finaliser et tester la version Docker**
 
 * Expliquer en quelques lignes comment lancer le serveur via Docker.
 * Vérifier la compatibilité avec un ou plusieurs clients SLAM en environnement Docker.
@@ -447,7 +447,7 @@ crontab -e
 
 ---
 
-5. **Réfléchir à l’évaluation en tant que Réalisation Professionnelle**
+6. **Réfléchir à l’évaluation en tant que Réalisation Professionnelle**
 
 * Remplir la fiche RP avec :
 
