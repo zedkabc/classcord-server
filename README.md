@@ -32,11 +32,6 @@ Le serveur vous est fourni au format Python (multi-clients avec sockets TCP). Il
 * Optionnel : Prometheus, Grafana, scripts bash, firewall matériel
 
 ---
-Tu as parfaitement raison : pour assurer la **cohérence avec le projet SLAM** et respecter les bonnes pratiques GitHub, les SISR doivent aussi **forker** le dépôt avant de le cloner.
-
-Voici le bloc mis à jour, **au bon format Markdown**, à remplacer dans ton document (README ou énoncé) :
-
----
 
 ## 📅 Organisation de la semaine
 
