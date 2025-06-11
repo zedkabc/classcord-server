@@ -80,10 +80,6 @@ Les étudiants SLAM devront être capables de se connecter à votre instance en 
 
 ### 🔄 Tâches à réaliser :
 
-**Partie 1 : Tests finaux et documentation**
-
-**Partie 1 : Ajouts fonctionnels**
-
 1. **Cloner le dépôt du projet serveur**
 
 ```bash
@@ -211,9 +207,8 @@ sudo systemctl enable --now classcord.service
 
 * Pour permettre un redémarrage manuel rapide du serveur par un non-admin
 
-**Partie 2 : Début de la containerisation avec Docker**
 
-6. **Créer un ****`Dockerfile`**** pour votre serveur**
+7. **Créer un ****`Dockerfile`**** pour votre serveur**
 
 * Créez un fichier `Dockerfile` à la racine du projet.
 * Objectif : pouvoir exécuter le serveur avec une simple commande Docker.
@@ -229,18 +224,18 @@ EXPOSE 12345
 CMD ["python", "server_classcord.py"]
 ```
 
-7. **Construire et tester l’image Docker localement**
+8. **Construire et tester l’image Docker localement**
 
 ```bash
 docker build -t classcord-server .
 docker run -it --rm -p 12345:12345 classcord-server
 ```
 
-8. **Bonus : Ajouter un ** : **`docker-compose.yml`**
+9. **Bonus : Ajouter un ** : **`docker-compose.yml`**
 
 * Permettre un démarrage standardisé : réseau, volume pour les logs, port exposé.
 
-9. **Commencer à documenter l’usage Docker dans ** : **`CONTAINERS.md`**
+10. **Commencer à documenter l’usage Docker dans ** : **`CONTAINERS.md`**
 
 * Inclure les instructions de build, run, ports, IP, configuration firewall (si nécessaire).
 
