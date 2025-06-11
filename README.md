@@ -32,12 +32,53 @@ Le serveur vous est fourni au format Python (multi-clients avec sockets TCP). Il
 * Optionnel : Prometheus, Grafana, scripts bash, firewall matériel
 
 ---
+Tu as parfaitement raison : pour assurer la **cohérence avec le projet SLAM** et respecter les bonnes pratiques GitHub, les SISR doivent aussi **forker** le dépôt avant de le cloner.
+
+Voici le bloc mis à jour, **au bon format Markdown**, à remplacer dans ton document (README ou énoncé) :
+
+---
 
 ## 📅 Organisation de la semaine
 
 Chaque journée cible une compétence du bloc infrastructure ou sécurité. Vous devez livrer à chaque étape un serveur fonctionnel et documenté, opérationnel sur le réseau local.
 
-Un répertoire GitHub vous est attribué : [https://github.com/AstrowareConception/classcord-server](https://github.com/AstrowareConception/classcord-server)
+Un repository GitHub contient les consignes et le code de base du serveur : [https://github.com/AstrowareConception/classcord-server](https://github.com/AstrowareConception/classcord-server)
+
+> 🎯 **Chaque étudiant doit travailler dans un dépôt GitHub personnel issu d’un fork de ce projet.**
+
+### Étapes à suivre :
+
+1. **Forkez** le dépôt [classcord-server](https://github.com/AstrowareConception/classcord-server) sur votre compte GitHub.
+2. Sur votre fork, cliquez sur **Code > HTTPS** et copiez l’URL.
+3. Ouvrez un terminal Linux (ou VSCode en SSH) et tapez :
+
+```bash
+cd ~/BTS_SIO
+git clone https://github.com/votre-identifiant/classcord-server.git
+cd classcord-server
+```
+
+4. Enregistrez votre travail régulièrement :
+
+```bash
+git add .
+git commit -m "ex: configuration du pare-feu + test local"
+git push origin main
+```
+
+---
+
+### 📌 Contraintes GitHub pour la validation
+
+* Travail **exclusivement sur votre fork GitHub**
+* Projet avec **au moins 1 commit par jour, clair et structuré**
+* Un `README.md` personnel contenant :
+
+  * vos **nom et prénom**
+  * les **services mis en place**
+  * la **documentation d’accès au serveur**
+
+---
 
 Chaque soir, vous devez effectuer un `git push` avec README mis à jour (journal de bord, état du serveur, tests réalisés).
 
