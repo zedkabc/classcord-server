@@ -485,7 +485,7 @@ docker run -it --rm -p 12345:12345 classcord-server
 * Produire une documentation professionnelle
 * Présenter un projet structuré et cohérent à un jury BTS SIO
 
-* ---
+---
 
 ## 🎓 Compétences mobilisées (Référentiel BTS SIO – SISR)
 
