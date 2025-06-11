@@ -484,6 +484,8 @@ docker run -it --rm -p 12345:12345 classcord-server
 
 ## 🎓 Compétences mobilisées (Référentiel BTS SIO – SISR)
 
+A condition d'avoir tout très bien réalisé, voici a maxima les compétences que vous pouvez définir comme couvertes par le projet.
+
 | Bloc de compétences | Référence | Intitulé                                                                                   |
 |---------------------|-----------|---------------------------------------------------------------------------------------------|
 | Concevoir une solution d’infrastructure réseau |
