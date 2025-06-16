@@ -16,13 +16,17 @@
 - **Réseau :** Mode Accès NAT
 - **Python :** v3.13.5
 
-# Installation
+## Installation
+
+# Créer la V.M. :
+
+- V.M créée sur VirtualBox avec l'ISO Debian 12
 
 # Cloner le dépôt :
 
 - git clone https://github.com/zedkabc/classcord-server.git
 
-# Aller dans serv : 
+# Aller dans serveur : 
 
 - cd classcord-server
 
