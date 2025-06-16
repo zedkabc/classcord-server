@@ -6,7 +6,7 @@ import pickle
 import os
 from datetime import datetime
 
-HOST = '0.0.0.0'
+HOST = '127.0.0.1'
 PORT = 12345
 
 USER_FILE = 'users.pkl'
