@@ -9,14 +9,14 @@
 
 - https://github.com/zedkabc/classcord-server
 
-## 🖥️ Environnement de travail
+## Environnement de travail
 
 - **Machine physique :** Windows 11
 - **VM :** Debian 12 sous VirtualBox
 - **Réseau :** Mode Accès NAT
 - **Python :** v3.13.5
 
-## ⚙️ Installation
+## Installation
 
 # Cloner le dépôt
 
@@ -34,17 +34,17 @@
 
 - Voici la procédure pour te connecter au serveur ClassCord hébergé sur ma machine :
 
-# ✅ Prérequis
+# Prérequis
 
 - Avoir accès au réseau local (Wi-Fi ou Ethernet) sur lequel se trouve le serveur.
 - Connaitre l’adresse IP et le port du serveur.
 
-# 🧠 Infos du serveur
+# Infos du serveur
 
 - Adresse IP : 10.0.108.144 (remplace si elle change)
 - Port : 12345
 
-# 📲 Étapes de connexion
+# Étapes de connexion
 
 - Lancez votre client
 - Quand le programme vous demande l'adresse IP :
@@ -53,7 +53,7 @@
 - Tapez : 12345
 - Cliquez sur “Connexion” ou validez.
 
-# ⚠️ Assurez-vous que :
+# Assurez-vous que :
 
 - Vous êtes bien connecté au même réseau que la machine serveur (ex : même Wi-Fi)
 - Vous n’avez pas de pare-feu qui bloque la sortie (pare-feu personnel ou antivirus)
