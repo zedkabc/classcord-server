@@ -96,6 +96,7 @@ def handle_client(client_socket):
 def main():
     load_users()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Ajout de l'option SO_REUSEADDR (elle permet au serveur de réutiliser immédiatement le port même s'il n'a pas été correctement libéré)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
     print(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
