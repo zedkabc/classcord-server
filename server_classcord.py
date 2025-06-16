@@ -96,7 +96,7 @@ def handle_client(client_socket):
 def main():
     load_users()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
+    server_socket.bind(('0.0.0.0', 12345))
     server_socket.listen()
     print(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
     while True:
