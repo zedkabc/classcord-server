@@ -104,5 +104,5 @@ def main():
         client_socket, addr = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
 
-if name == 'main':
+if __name__ == '__main__':
     main()
