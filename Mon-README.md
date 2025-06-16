@@ -20,6 +20,7 @@
 # Cloner le dépôt
 git clone https://github.com/zedkabc/classcord-server.git
 
+# Aller dans serv
 cd classcord-server
 
 # Lancer le serveur
