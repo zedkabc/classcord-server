@@ -54,7 +54,7 @@
 
 - Lancez votre client
 - Quand le programme vous demande l'adresse IP :
-- Tapez : 10.0.108.83
+- Tapez : 10.0.108.66
 - Quand il vous demande le port :
 - Tapez : 12345
 - Cliquez sur “Connexion” ou validez.
