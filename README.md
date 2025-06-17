@@ -163,8 +163,11 @@ Votre serveur Python est pour l’instant lancé manuellement dans votre termina
 ### ➕ Avec **Docker**, on peut :
 
 ✅ Emballer votre serveur dans une **image portable**
+
 ✅ Reproduire exactement le même environnement de déploiement
+
 ✅ Lancer le serveur avec une **simple commande** (`docker run ...`)
+
 ✅ Le redéployer plus tard dans un **autre contexte** (autre machine, cloud...)
 
 > ⚠️ **On utilise Docker dans la VM**, car :
