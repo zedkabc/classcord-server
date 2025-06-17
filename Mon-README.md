@@ -107,7 +107,7 @@ WantedBy=multi-user.target
 
 ### Création du fichier : 
 
--sudo nano Dockerfile
+- sudo nano Dockerfile
 - Programme : 
 FROM python:3.11-slim
 WORKDIR /app
