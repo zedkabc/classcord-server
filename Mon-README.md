@@ -101,5 +101,5 @@ WantedBy=multi-user.target
 ### Activation du service
 
 - sudo systemctl daemon-reexec
-  sudo systemctl enable --now classcord.service
+- sudo systemctl enable --now classcord.service
 
