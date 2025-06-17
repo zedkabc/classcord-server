@@ -73,11 +73,33 @@
 ### Créer utilisateur :
 
 - sudo useradd -m classcord
-
-### Lui donner un mot de passe : 
-
-- sudo passwd classcord : class89
+- MDP : sudo passwd classcord : class89
 
 ### Se connecter en tant que classcord :
 
 - su - classcord
+
+## Automatisation avec systemd
+
+### Création du dossier classcord.service 
+
+- sudo nano /etc/systemd/system/classcord.service
+- Contenu :
+[Unit]
+Description=Serveur ClassCord
+After=network.target
+
+[Service]
+User=classcord
+WorkingDirectory=/home/classcord/classcord-server
+ExecStart=/usr/bin/python3 /home/classcord/classcord-server/server_classcord.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
+### Activation du service
+
+- sudo systemctl daemon-reexec
+  sudo systemctl enable --now classcord.service
+
