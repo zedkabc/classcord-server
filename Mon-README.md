@@ -124,4 +124,23 @@ CMD ["python", "server_classcord.py"]
 
 - docker run -it --rm -p 12345:12345 classcord-server
 
+# Jour 3
+
+## Configuration de la journalisation des événements du serveur :
+
+- Remplacement des "print" du code par des "logging"
+
+## Mise en place de Fail2Ban :
+
+- sudo apt install fail2ban
+- sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+
+## Mise en place d'une stratégie de sauvegarde :
+
+- Sauvegarde du fichier user.plk dans classcord-server
+- Automatisation via "cron" :
+   - crontab -e
+   - Ajout de "0 * * * * cp /home/classcord/classcord-server/users.pkl /home/classcord/backups/users-$(date +\%F-\%H\%M).pkl" dedans
+
+
 
