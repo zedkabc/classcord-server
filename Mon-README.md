@@ -16,6 +16,8 @@
 - **Réseau :** Mode Accès NAT
 - **Python :** v3.13.5
 
+### Jour 1
+
 ## Installation
 
 # Créer la V.M. :
@@ -61,3 +63,21 @@
 
 - Vous êtes bien connecté au même réseau que la machine serveur (ex : même Wi-Fi)
 - Vous n’avez pas de pare-feu qui bloque la sortie (pare-feu personnel ou antivirus)
+- Le firewall (ufw) autorise les connexions entrantes sur ce port : sudo ufw allow 12345
+- Le serveur est sur écoute : sudo ss -tulpn | grep 12345
+
+### Jour 2
+
+## Création d'utilisateur système 
+
+# Créer utilisateur :
+
+- sudo useradd -m classcord
+
+# Lui donner un mot de passe : 
+
+- sudo passwd classcord : class89
+
+# Se connecter en tant que classcord :
+
+- su - classcord
