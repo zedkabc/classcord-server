@@ -8,6 +8,7 @@ HOST = "0.0.0.0"
 PORT = 12345
 DATA_FILE = "users.json"
 LOCK = threading.Lock()
+clients = []  # 🆕 Liste des connexions client
 
 # Configuration du log
 LOG_PATH = "/var/log/classcord/classcord.log"
@@ -32,9 +33,23 @@ def save_users():
             json.dump(USERS, f)
         logging.info("Utilisateurs sauvegardés.")
 
+def broadcast(message, sender_conn=None):
+    """Envoie un message à tous les clients connectés sauf l'émetteur"""
+    data = json.dumps({"type": "message", "content": message}).encode()
+    with LOCK:
+        for client in clients:
+            if client != sender_conn:
+                try:
+                    client.sendall(data)
+                except Exception as e:
+                    logging.error(f"Erreur d'envoi à un client : {e}")
+
 def handle_client(conn, address):
+    global clients
     logging.info(f"Connexion depuis {address}")
     username = None
+    with LOCK:
+        clients.append(conn)
     try:
         while True:
             data = conn.recv(1024)
@@ -50,11 +65,11 @@ def handle_client(conn, address):
                 with LOCK:
                     USERS[username] = {"state": "online", "address": address[0]}
                 logging.info(f"{username} connecté")
-                broadcast(f"{username} a rejoint le chat.")
+                broadcast(f"{username} a rejoint le chat.", conn)
                 save_users()
             elif msg["type"] == "message":
                 logging.info(f"{username} >> {msg['content']}")
-                broadcast(f"{username}: {msg['content']}")
+                broadcast(f"{username}: {msg['content']}", conn)
             elif msg["type"] == "status":
                 with LOCK:
                     USERS[username]["state"] = msg["state"]
@@ -66,22 +81,12 @@ def handle_client(conn, address):
         with LOCK:
             if username and username in USERS:
                 USERS[username]["state"] = "offline"
+            if conn in clients:
+                clients.remove(conn)
             save_users()
         logging.info(f"{address} déconnecté")
-        broadcast(f"{username} s'est déconnecté.")
+        broadcast(f"{username} s'est déconnecté.", conn)
         conn.close()
-
-def broadcast(message):
-    with LOCK:
-        for username, info in USERS.items():
-            if info["state"] == "online":
-                try:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.connect((info["address"], PORT))
-                        s.sendall(json.dumps({"type": "message", "content": message}).encode())
-                    logging.info(f"Message envoyé à {username} : {message}")
-                except Exception as e:
-                    logging.error(f"Échec d'envoi à {username} : {e}")
 
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
