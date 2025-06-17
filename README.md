@@ -139,43 +139,111 @@ sudo ufw allow 12345/tcp
 * Recevoir et transmettre des messages JSON
 * Voir les messages apparaître dans la console
 
+
+
 ## 📖 Jour 2 - Mardi : Déploiement sur le réseau, lancement en service et documentation d’accès
 
-### Objectifs de la journée :
+### 🎯 Objectifs pédagogiques
 
-* Rendre le serveur accessible sur le réseau local (LAN) de la salle.
-* Créer un utilisateur système spécifique pour exécuter le serveur.
-* Mettre en place un lancement automatique avec `systemd` ou `supervisord`.
-* Documenter clairement la procédure de connexion pour les étudiants SLAM.
-* Commencer à protéger l'accès au serveur (port, journalisation, détection de comportements anormaux).
+* Rendre le **serveur accessible depuis un poste SLAM**, malgré les contraintes réseau.
+* Créer un **service système fiable** et documenté.
+* Comprendre pourquoi **Docker est utile dans un contexte de virtualisation**.
+* Commencer la **standardisation du déploiement via containerisation**.
 
-### 🔄 Tâches à réaliser :
+---
 
-1. **Configurer le serveur sur votre machine Linux**
+## 🧠 Pourquoi Docker dans une VM ?
 
-* S'assurer que le port 12345 est bien à l'écoute sur l'adresse LAN (ex: `192.168.X.X`).
-* Autoriser le port dans `ufw` ou `iptables`.
+Votre serveur Python est pour l’instant lancé manuellement dans votre terminal. Ce n’est pas idéal :
+
+* Il faut penser à le relancer à chaque démarrage
+* Il dépend de l’environnement local de la VM
+* D’autres étudiants ne peuvent pas le lancer facilement ailleurs
+
+### ➕ Avec **Docker**, on peut :
+
+✅ Emballer votre serveur dans une **image portable**
+
+✅ Reproduire exactement le même environnement de déploiement
+
+✅ Lancer le serveur avec une **simple commande** (`docker run ...`)
+
+✅ Le redéployer plus tard dans un **autre contexte** (autre machine, cloud...)
+
+> ⚠️ **On utilise Docker dans la VM**, car :
+>
+> * votre machine **hôte** (Windows/macOS) n’est pas homogène
+> * tout le projet doit fonctionner **en local dans Linux**
+> * **la VM est votre environnement cible officiel**
+
+---
+
+## 🖥️ Architecture réseau avec redirection NAT
+
+Sur votre réseau pédagogique :
+
+* Les VMs **ne sont pas directement accessibles** depuis l’extérieur
+* Une redirection NAT permet de **recevoir des connexions sur le poste hôte**, qui sont redirigées vers la VM
+
+Voici un schéma simplifié :
+
+```
+╭────────────╮          NAT (redir. port)         ╭────────────╮
+│ Poste SLAM │ ─────────────────────────────────▶ │ Poste SISR │
+│ 10.0.108.34│                                   │ 10.0.108.42│
+╰────────────╯                                   │ (Hôte réel)│
+                                                 │     ▲      │
+                                                 │     │ NAT  │
+                                                 │     ▼      │
+                                                 │  VM Linux  │
+                                                 │  192.168.X │
+                                                 │ Port 12345 │
+                                                 ╰────────────╯
+```
+
+> ✅ **Le SLAM se connecte à votre IP publique (10.0.108.42)**
+> 🔁 **Une règle NAT redirige le port 12345 vers votre VM**
+
+---
+
+## 🔄 Tâches à réaliser
+
+### 1. Vérifier que le serveur écoute sur l’adresse LAN
 
 ```bash
 sudo ufw allow 12345/tcp
-hostname -I  # pour obtenir votre IP locale
+ss -tulpn | grep 12345
+hostname -I  # pour obtenir l'IP interne (inutile pour SLAM, mais utile pour vous)
 ```
 
-2. **Tester une connexion distante depuis un client SLAM**
+🟡 Demander à votre formateur si la **redirection NAT** est bien en place.
+SLAM doit se connecter à l’**IP de votre hôte physique**, pas à celle de la VM.
 
-* Sur une autre machine : entrer IP + port dans l'application client.
-* Vérifier la réception des messages dans la console serveur.
+---
 
-3. **Créer un utilisateur dédié au serveur Python**
+### 2. Lancer un test de connexion depuis un client SLAM
+
+* Sur un poste SLAM : saisir **votre IP publique** + port 12345
+* Envoyer un message depuis le client invité
+* Vérifier que le message apparaît dans la console du serveur
+
+---
+
+### 3. Créer un utilisateur système `classcord`
 
 ```bash
 sudo useradd -m classcord
 sudo passwd classcord
+su - classcord
 ```
 
-* Lancer le serveur depuis ce compte (via `su - classcord`).
+> Cela permet de **séparer les droits** : le serveur n’est pas lancé par un superadmin.
 
-4. **Mettre en place un service systemd** (`/etc/systemd/system/classcord.service`)
+---
+
+### 4. Automatiser avec `systemd`
+
+Créer `/etc/systemd/system/classcord.service` :
 
 ```ini
 [Unit]
@@ -192,28 +260,37 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
+Activer le service :
+
 ```bash
 sudo systemctl daemon-reexec
 sudo systemctl enable --now classcord.service
 ```
 
-5. **Rédiger une documentation de connexion à destination des SLAM**
+---
 
-* Format `README.md` ou `doc_connexion.md`
-* Contient : IP, port, conditions d’accès, exemple de client, schéma réseau
-* Inclure des captures d’écran du test de connexion
+### 5. Rédiger une documentation de connexion (`doc_connexion.md`)
 
-6. **Bonus : écriture d'un petit script ** : **`start_server.sh`**
+Inclure :
 
-* Pour permettre un redémarrage manuel rapide du serveur par un non-admin
+* IP d’accès : `10.0.108.xx` (celle de votre hôte, **pas de votre VM**)
+* Port : `12345`
+* Schéma réseau
+* Extrait de log de connexion réussi
+* Exemple d’utilisation du client Java
 
+---
 
-7. **Créer un ****`Dockerfile`**** pour votre serveur**
+### 6. (Bonus) Script `start_server.sh` pour lancer manuellement
 
-* Créez un fichier `Dockerfile` à la racine du projet.
-* Objectif : pouvoir exécuter le serveur avec une simple commande Docker.
+```bash
+#!/bin/bash
+python3 server_classcord.py
+```
 
-Exemple minimal :
+---
+
+### 7. Créer un `Dockerfile` à la racine du projet
 
 ```Dockerfile
 FROM python:3.11-slim
@@ -224,33 +301,61 @@ EXPOSE 12345
 CMD ["python", "server_classcord.py"]
 ```
 
-8. **Construire et tester l’image Docker localement**
+---
+
+### 8. Construire et tester l’image Docker
 
 ```bash
 docker build -t classcord-server .
 docker run -it --rm -p 12345:12345 classcord-server
 ```
 
-9. **Bonus : Ajouter un ** : **`docker-compose.yml`**
+✅ Cela prouve que le serveur est **portable et isolé**
+✅ Cela prépare une éventuelle **migration vers le cloud ou un serveur réel**
 
-* Permettre un démarrage standardisé : réseau, volume pour les logs, port exposé.
+---
 
-10. **Commencer à documenter l’usage Docker dans ** : **`CONTAINERS.md`**
+### 9. (Bonus) Ajouter `docker-compose.yml`
 
-* Inclure les instructions de build, run, ports, IP, configuration firewall (si nécessaire).
+```yaml
+version: '3'
+services:
+  classcord:
+    build: .
+    ports:
+      - "12345:12345"
+    restart: unless-stopped
+```
 
-### 📄 Livrables attendus en fin de journée :
+---
 
-* Serveur joignable depuis une autre machine du réseau
-* Lancement automatisé du serveur à l’allumage
-* Documentation de connexion fonctionnelle pour les SLAM
-* Journal de bord mis à jour dans le README (avec tests + IP)
+### 10. Créer un fichier `CONTAINERS.md`
 
-### 📊 En fin de journée vous devez savoir :
+Contenu :
 
-* Configurer un service réseau en écoute sur votre machine
-* Le rendre accessible et maintenu automatiquement
-* Fournir une documentation claire à un tiers technique
+* Pourquoi Docker ?
+* Comment build, run
+* Ports à exposer
+* Spécificités VM + NAT
+
+---
+
+## 📄 Livrables attendus
+
+* Serveur accessible depuis un client SLAM
+* Démarrage automatisé avec `systemd`
+* Image Docker fonctionnelle
+* README à jour avec IP, port, captures et explication réseau
+
+---
+
+## ✅ En fin de journée, vous devez savoir
+
+* Rendre un service accessible sur un réseau pédagogique restreint
+* Lancer un service automatiquement au démarrage
+* Créer une image Docker prête à être redéployée
+* Rédiger une documentation technique claire
+
 
 ## 📗 Jour 3 - Mercredi : Sécurisation active, journalisation et sauvegardes
 
