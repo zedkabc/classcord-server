@@ -123,7 +123,6 @@ def handle_client(client_socket):
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
                 msg = json.loads(line)
-
                 if msg['type'] == 'register':
                     with LOCK:
                         if msg['username'] in USERS:
