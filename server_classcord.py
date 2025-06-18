@@ -12,42 +12,28 @@ PORT = 12345
 
 USER_FILE = 'users.pkl'
 DB_FILE = 'classcord.db'
+LOG_FILE = '/home/louka/classcord-server/debug.log'
+
 CLIENTS = {}  # socket: username
 USERS = {}    # username: password
 LOCK = threading.Lock()
 
-# --- CONFIG LOGGING ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEBUG_LOG = os.path.join(BASE_DIR, 'debug.log')
-AUDIT_LOG = os.path.join(BASE_DIR, 'audit.log')
-
+# Configuration du logger pour écrire dans debug.log et console
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+logger.info("=== Serveur ClassCord démarrage ===")
 
-debug_handler = logging.FileHandler(DEBUG_LOG)
-debug_handler.setLevel(logging.DEBUG)
-debug_handler.setFormatter(formatter)
-
-audit_handler = logging.FileHandler(AUDIT_LOG)
-audit_handler.setLevel(logging.INFO)
-audit_handler.setFormatter(formatter)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-console_handler.setFormatter(formatter)
-
-if logger.hasHandlers():
-    logger.handlers.clear()
-
-logger.addHandler(debug_handler)
-logger.addHandler(audit_handler)
-logger.addHandler(console_handler)
-# --- FIN CONFIG LOGGING ---
-
-
+# -- Initialisation base SQLite --
 def init_database():
+    logger.debug("Initialisation de la base SQLite")
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -66,23 +52,23 @@ def init_database():
             );
         """)
         conn.commit()
-    logger.info("[INIT] Base SQLite initialisée.")
+    logger.debug("Base SQLite initialisée")
 
-
+# -- Mise à jour statut utilisateur --
 def update_user_status(username, state):
-    logger.debug(f"[DB] update_user_status called: {username} => {state}")
+    logger.debug(f"[DB] update_user_status appelé : {username} => {state}")
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO users (username, state, last_seen)
             VALUES (?, ?, datetime('now'))
             ON CONFLICT(username) DO UPDATE SET
-                state=excluded.state,
-                last_seen=datetime('now');
+                state = excluded.state,
+                last_seen = datetime('now');
         """, (username, state))
         conn.commit()
 
-
+# -- Récupération liste des connectés --
 def list_online_users():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
@@ -92,7 +78,7 @@ def list_online_users():
         logger.debug(f"[DB] Utilisateurs en ligne : {users}")
         return users
 
-
+# -- Chargement/sauvegarde utilisateurs depuis fichier .pkl --
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
@@ -100,13 +86,12 @@ def load_users():
             USERS = pickle.load(f)
     logger.info(f"[INIT] Utilisateurs chargés: {list(USERS.keys())}")
 
-
 def save_users():
     with open(USER_FILE, 'wb') as f:
         pickle.dump(USERS, f)
     logger.info("[SAVE] Utilisateurs sauvegardés.")
 
-
+# -- Envoi message à tous, y compris émetteur --
 def broadcast(message, sender_socket=None):
     to_remove = []
     for client_socket, username in CLIENTS.items():
@@ -116,28 +101,26 @@ def broadcast(message, sender_socket=None):
         except Exception as e:
             logger.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
             to_remove.append(client_socket)
-    for s in to_remove:
-        with LOCK:
-            CLIENTS.pop(s, None)
-            s.close()
+    # Nettoyage des sockets défaillants
+    with LOCK:
+        for sock in to_remove:
+            CLIENTS.pop(sock, None)
+            try:
+                sock.close()
+            except:
+                pass
 
-
-def send_system_message(content, to_sockets=None):
+# -- Envoi message système (nouveaux arrivants, alertes, départs) --
+def send_system_message(content):
     message = {
         'type': 'system',
         'content': content,
         'timestamp': datetime.now().isoformat()
     }
-    if to_sockets is None:
-        to_sockets = list(CLIENTS.keys())
-    for sock in to_sockets:
-        try:
-            sock.sendall((json.dumps(message) + '\n').encode())
-            logger.info(f"[SYSTEM] Message envoyé à {CLIENTS.get(sock, 'inconnu')} : {content}")
-        except Exception as e:
-            logger.error(f"[ERREUR] Échec d'envoi system message : {e}")
+    logger.info(f"[SYSTEM MESSAGE] {content}")
+    broadcast(message)
 
-
+# -- Traitement client --
 def handle_client(client_socket):
     buffer = ''
     username = None
@@ -162,7 +145,7 @@ def handle_client(client_socket):
                             USERS[msg['username']] = msg['password']
                             save_users()
                             response = {'type': 'register', 'status': 'ok'}
-                    client_socket.sendall((json.dumps(response) + '\n').encode())
+                        client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'login':
                     with LOCK:
@@ -182,8 +165,8 @@ def handle_client(client_socket):
                                 'users': online_users
                             }) + '\n').encode())
 
-                            # Message système : nouvel arrivant
-                            send_system_message(f"L'utilisateur {username} vient de se connecter.")
+                            # Message système de bienvenue
+                            send_system_message(f"{username} vient de rejoindre le chat.")
 
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
@@ -217,7 +200,7 @@ def handle_client(client_socket):
                         logger.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
 
                     logger.info(f"[MSG] {username} >> {msg['content']}")
-                    broadcast(msg)
+                    broadcast(msg)  # Diffuse aussi au client qui envoie
 
                 elif msg['type'] == 'status' and username:
                     update_user_status(username, msg['state'])
@@ -230,12 +213,11 @@ def handle_client(client_socket):
         if username:
             update_user_status(username, 'offline')
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
-            send_system_message(f"L'utilisateur {username} vient de se déconnecter.")
+            send_system_message(f"{username} a quitté le chat.")
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
         logger.info(f"[DECONNEXION] {address} déconnecté")
-
 
 def main():
     init_database()
@@ -248,7 +230,6 @@ def main():
     while True:
         client_socket, addr = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
-
 
 if __name__ == '__main__':
     main()
