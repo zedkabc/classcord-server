@@ -20,7 +20,6 @@ LOCK = threading.Lock()
 LOG_FILE = '/var/log/classcord.log'
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# -- SQLite: mise à jour du statut utilisateur --
 def update_user_status(username, state):
     print(f"[DEBUG] update_user_status called: {username} => {state}")
     conn = sqlite3.connect(DB_FILE)
@@ -42,7 +41,6 @@ def update_user_status(username, state):
     conn.commit()
     conn.close()
 
-# -- Chargement et sauvegarde utilisateurs depuis fichier .pkl --
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
@@ -55,7 +53,8 @@ def save_users():
         pickle.dump(USERS, f)
     logging.info("[SAVE] Utilisateurs sauvegardés.")
 
-def broadcast(message, sender_socket=None):
+# Modif ici : broadcast envoie à **tout le monde y compris l'émetteur**
+def broadcast(message):
     for client_socket, username in CLIENTS.items():
         try:
             client_socket.sendall((json.dumps(message) + '\n').encode())
@@ -63,7 +62,6 @@ def broadcast(message, sender_socket=None):
         except Exception as e:
             logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
 
-# -- Traitement d’un client connecté --
 def handle_client(client_socket):
     buffer = ''
     username = None
@@ -95,54 +93,52 @@ def handle_client(client_socket):
                         if USERS.get(msg['username']) == msg['password']:
                             username = msg['username']
                             CLIENTS[client_socket] = username
-                            update_user_status(username, 'online')  # 🔹 SQLite
+                            update_user_status(username, 'online')
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
+                            broadcast({'type': 'status', 'user': username, 'state': 'online'})
                             logging.info(f"[LOGIN] {username} connecté")
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'message':
-    if not username:
-        username = msg.get('from', 'invité')
-        with LOCK:
-            CLIENTS[client_socket] = username
-        logging.info(f"[INFO] Connexion invitée détectée : {username}")
+                    if not username:
+                        username = msg.get('from', 'invité')
+                        with LOCK:
+                            CLIENTS[client_socket] = username
+                        logging.info(f"[INFO] Connexion invitée détectée : {username}")
 
-    msg['from'] = username
-    msg['timestamp'] = datetime.now().isoformat()
+                    msg['from'] = username
+                    msg['timestamp'] = datetime.now().isoformat()
 
-    # 🔽 Enregistrement dans la base SQLite
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO messages (sender, content, timestamp)
-            VALUES (?, ?, ?)
-        """, (username, msg['content'], msg['timestamp']))
-        conn.commit()
-        conn.close()
-        logging.info(f"[DB] Message enregistré pour {username}")
-    except Exception as e:
-        logging.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
+                    try:
+                        conn = sqlite3.connect(DB_FILE)
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO messages (sender, content, timestamp)
+                            VALUES (?, ?, ?)
+                        """, (username, msg['content'], msg['timestamp']))
+                        conn.commit()
+                        conn.close()
+                        logging.info(f"[DB] Message enregistré pour {username}")
+                    except Exception as e:
+                        logging.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
 
-    logging.info(f"[MSG] {username} >> {msg['content']}")
-    broadcast(msg, client_socket)
-
+                    logging.info(f"[MSG] {username} >> {msg['content']}")
+                    broadcast(msg)  # envoi à tout le monde y compris émetteur
 
                 elif msg['type'] == 'status' and username:
-                    update_user_status(username, msg['state'])  # 🔹 SQLite
-                    broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
+                    update_user_status(username, msg['state'])
+                    broadcast({'type': 'status', 'user': username, 'state': msg['state']})
                     logging.info(f"[STATUS] {username} est maintenant {msg['state']}")
 
     except Exception as e:
         logging.error(f'[ERREUR] Problème avec {address} ({username}): {e}')
     finally:
         if username:
-            update_user_status(username, 'offline')  # 🔹 SQLite
-            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
+            update_user_status(username, 'offline')
+            broadcast({'type': 'status', 'user': username, 'state': 'offline'})
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
@@ -169,8 +165,6 @@ def init_database():
     conn.commit()
     conn.close()
 
-
-# -- Démarrage du serveur --
 def main():
     init_database()
     load_users()
