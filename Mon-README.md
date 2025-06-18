@@ -144,7 +144,51 @@ CMD ["python", "server_classcord.py"]
 
 # Jour 4
 
-## Ajout d'un système de canaux de discussions
+## Ajout d'un système de canaux de discussions :
 
 - Modification du code afin d'ajouter ce système
+
+## Passage à un stockage persistant des utilisateurs/messages
+
+### Remplacement du fichier users.pkl par une base SQLite simple (sqlite3) :
+
+- Modification du code :
+   Création d'une base SQLite pour les utilisateurs.
+   Modification du code Python pour lire/écrire les utilisateurs dans cette base.
+   Suppression des références à users.pkl.
+- Suppression du fichier : rm users.pkl
+
+### Création de deux tables : users et messages, avec horodatage :
+
+- Modification du code :
+   Connexion à classcord.db
+   Remplacement de users.pkl par des requêtes SQL
+   Insertion des messages dans la base
+
+## Personnalisation des messages sytèmes 
+
+### Ajout d'une fonction send_system_message(to, content) :
+
+- Modification du code :
+   Ajout d'une fonction send_system_message(to_username, content) qui envoie un message système    ciblé.
+   Ajout d'un exemple d’envoi de message système à un utilisateur quand il se connecte             (send_system_message(username, "Bienvenue sur Classcord !")).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
