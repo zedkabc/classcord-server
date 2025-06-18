@@ -142,5 +142,9 @@ CMD ["python", "server_classcord.py"]
    - crontab -e
    - Ajout de "0 * * * * cp /home/classcord/classcord-server/users.pkl /home/classcord/backups/users-$(date +\%F-\%H\%M).pkl" dedans
 
+# Jour 4
 
+## Ajout d'un système de canaux de discussions
+
+- Modification du code afin d'ajouter ce système
 
