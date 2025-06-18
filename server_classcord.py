@@ -19,7 +19,7 @@ LOCK = threading.Lock()
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
 
 # Handler debug.log (tout)
-debug_handler = logging.FileHandler('debug.log')
+debug_handler = logging.FileHandler('/home/louka/classcord-server/debug.log')
 debug_handler.setLevel(logging.DEBUG)
 debug_handler.setFormatter(logging.Formatter(LOG_FORMAT))
 
