@@ -16,57 +16,63 @@ CLIENTS = {}  # socket: username
 USERS = {}    # username: password
 LOCK = threading.Lock()
 
-# Configuration du logging vers /var/log/classcord.log
+# Logging vers fichier et console (niveau DEBUG pour console)
 LOG_FILE = '/var/log/classcord.log'
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
 
-# -- Initialisation de la base SQLite --
+# -- Initialisation base SQLite --
 def init_database():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            state TEXT,
-            last_seen TEXT
-        );
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender TEXT,
-            content TEXT,
-            timestamp TEXT
-        );
-    """)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                state TEXT,
+                last_seen TEXT
+            );
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT,
+                content TEXT,
+                timestamp TEXT
+            );
+        """)
+        conn.commit()
 
-# -- Mise à jour du statut utilisateur dans la base SQLite --
+# -- Mise à jour statut utilisateur --
 def update_user_status(username, state):
-    print(f"[DEBUG] update_user_status called: {username} => {state}")
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO users (username, state, last_seen)
-        VALUES (?, ?, datetime('now'))
-        ON CONFLICT(username) DO UPDATE SET
-            state = excluded.state,
-            last_seen = datetime('now');
-    """, (username, state))
-    conn.commit()
-    conn.close()
+    logging.debug(f"[DB] update_user_status called: {username} => {state}")
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO users (username, state, last_seen)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(username) DO UPDATE SET
+                state = excluded.state,
+                last_seen = datetime('now');
+        """, (username, state))
+        conn.commit()
 
-# -- Récupérer la liste des utilisateurs en ligne --
+# -- Récupération liste des connectés --
 def list_online_users():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT username FROM users WHERE state = 'online'")
-    users = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return users
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM users WHERE state = 'online'")
+        rows = cursor.fetchall()
+        users = [row[0] for row in rows]
+        logging.debug(f"[DB] Utilisateurs en ligne : {users}")
+        return users
 
-# -- Chargement et sauvegarde utilisateurs depuis fichier .pkl --
+# -- Chargement/sauvegarde utilisateurs depuis fichier .pkl --
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
@@ -79,16 +85,22 @@ def save_users():
         pickle.dump(USERS, f)
     logging.info("[SAVE] Utilisateurs sauvegardés.")
 
-# -- Diffusion d’un message à tous, y compris l’émetteur --
+# -- Envoi message à tous, y compris émetteur --
 def broadcast(message, sender_socket=None):
+    to_remove = []
     for client_socket, username in CLIENTS.items():
         try:
             client_socket.sendall((json.dumps(message) + '\n').encode())
-            logging.info(f"[ENVOI] Message envoyé à {username} : {message}")
+            logging.debug(f"[ENVOI] Message envoyé à {username} : {message}")
         except Exception as e:
             logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
+            to_remove.append(client_socket)
+    with LOCK:
+        for sock in to_remove:
+            CLIENTS.pop(sock, None)
+            sock.close()
 
-# -- Traitement d’un client connecté --
+# -- Traitement client --
 def handle_client(client_socket):
     buffer = ''
     username = None
@@ -120,13 +132,13 @@ def handle_client(client_socket):
                         if USERS.get(msg['username']) == msg['password']:
                             username = msg['username']
                             CLIENTS[client_socket] = username
-                            update_user_status(username, 'online')  # 🔹 SQLite
+                            update_user_status(username, 'online')
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
                             broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
                             logging.info(f"[LOGIN] {username} connecté")
 
-                            # Envoi la liste des connectés au client qui vient de se connecter
+                            # Envoi liste des connectés au client
                             online_users = list_online_users()
                             client_socket.sendall((json.dumps({
                                 'type': 'list_users',
@@ -138,7 +150,6 @@ def handle_client(client_socket):
                             client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'list_users':
-                    # client demande la liste des connectés
                     online_users = list_online_users()
                     response = {'type': 'list_users', 'users': online_users}
                     client_socket.sendall((json.dumps(response) + '\n').encode())
@@ -153,17 +164,15 @@ def handle_client(client_socket):
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
 
-                    # Enregistrement dans la base SQLite
                     try:
-                        conn = sqlite3.connect(DB_FILE)
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            INSERT INTO messages (sender, content, timestamp)
-                            VALUES (?, ?, ?)
-                        """, (username, msg['content'], msg['timestamp']))
-                        conn.commit()
-                        conn.close()
-                        logging.info(f"[DB] Message enregistré pour {username}")
+                        with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                INSERT INTO messages (sender, content, timestamp)
+                                VALUES (?, ?, ?)
+                            """, (username, msg['content'], msg['timestamp']))
+                            conn.commit()
+                        logging.debug(f"[DB] Message enregistré pour {username}")
                     except Exception as e:
                         logging.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
 
@@ -171,7 +180,7 @@ def handle_client(client_socket):
                     broadcast(msg)  # Diffuse aussi au client qui envoie
 
                 elif msg['type'] == 'status' and username:
-                    update_user_status(username, msg['state'])  # 🔹 SQLite
+                    update_user_status(username, msg['state'])
                     broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
                     logging.info(f"[STATUS] {username} est maintenant {msg['state']}")
 
@@ -179,14 +188,13 @@ def handle_client(client_socket):
         logging.error(f'[ERREUR] Problème avec {address} ({username}): {e}')
     finally:
         if username:
-            update_user_status(username, 'offline')  # 🔹 SQLite
+            update_user_status(username, 'offline')
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
         logging.info(f"[DECONNEXION] {address} déconnecté")
 
-# -- Démarrage du serveur --
 def main():
     init_database()
     load_users()
