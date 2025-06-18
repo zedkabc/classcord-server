@@ -135,6 +135,7 @@ def handle_client(client_socket):
                 line, buffer = buffer.split('\n', 1)
                 try:
                     msg = json.loads(line)
+                    logger.debug(f"[RECU de {username or address}] {msg}")
                 except json.JSONDecodeError:
                     logger.warning(f"Message JSON malformé reçu de {address} : {line}")
                     error_msg = {'type': 'error', 'message': 'Message JSON malformé.'}
@@ -251,10 +252,13 @@ def admin_interface():
         if choice == '1':
             print("Clients actifs :")
             with LOCK:
-                for sock, info in CLIENTS.items():
-                    print(f" - {info['username']} (#{info['channel']})")
-        elif choice == '2':
-            alert = input("Alerte à envoyer : ").strip()
+                if not CLIENTS:
+    print("Aucun client actif.")
+        else:
+            for sock, info in CLIENTS.items():
+                print(f" - {info.get('username', 'inconnu')} (#{info.get('channel', 'général')})")    
+            elif choice == '2':
+                alert = input("Alerte à envoyer : ").strip()
             if alert:
                 send_system_message("[ALERTE ADMIN] " + alert)
         elif choice == '3':
