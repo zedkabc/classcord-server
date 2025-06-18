@@ -1,25 +1,23 @@
 import socket
 import threading
 import json
-import pickle
 import os
 import logging
 import sqlite3
 from datetime import datetime
 
-log_dir = os.path.dirname('/home/louka/classcord-server/debug.log')
-os.makedirs(log_dir, exist_ok=True)
+LOG_FILE = '/home/louka/classcord-server/debug.log'
+DB_FILE = 'classcord.db'
 
 HOST = '0.0.0.0'
 PORT = 12345
 
-USER_FILE = 'users.pkl'
-DB_FILE = 'classcord.db'
-LOG_FILE = '/home/louka/classcord-server/debug.log'
-
 CLIENTS = {}  # socket: {'username': str, 'channel': str}
-USERS = {}    # username: password
 LOCK = threading.Lock()
+
+# Création du dossier logs si besoin
+log_dir = os.path.dirname(LOG_FILE)
+os.makedirs(log_dir, exist_ok=True)
 
 # Logger configuration
 logging.basicConfig(
@@ -39,6 +37,7 @@ def init_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
+                password TEXT NOT NULL,
                 state TEXT,
                 last_seen TEXT
             );
@@ -54,16 +53,35 @@ def init_database():
         """)
         conn.commit()
 
+def register_user(username, password):
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO users (username, password, state, last_seen)
+                VALUES (?, ?, 'offline', datetime('now'))
+            """, (username, password))
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            # username déjà existant
+            return False
+
+def check_user_password(username, password):
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row and row[0] == password:
+            return True
+        return False
+
 def update_user_status(username, state):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO users (username, state, last_seen)
-            VALUES (?, ?, datetime('now'))
-            ON CONFLICT(username) DO UPDATE SET
-                state = excluded.state,
-                last_seen = datetime('now');
-        """, (username, state))
+            UPDATE users SET state = ?, last_seen = datetime('now') WHERE username = ?
+        """, (state, username))
         conn.commit()
 
 def list_online_users():
@@ -72,18 +90,6 @@ def list_online_users():
         cursor.execute("SELECT username FROM users WHERE state = 'online'")
         return [row[0] for row in cursor.fetchall()]
 
-def load_users():
-    global USERS
-    if os.path.exists(USER_FILE):
-        with open(USER_FILE, 'rb') as f:
-            USERS = pickle.load(f)
-    logger.info(f"[INIT] Utilisateurs chargés: {list(USERS.keys())}")
-
-def save_users():
-    with open(USER_FILE, 'wb') as f:
-        pickle.dump(USERS, f)
-    logger.info("[SAVE] Utilisateurs sauvegardés.")
-
 def broadcast(message, sender_socket=None):
     to_remove = []
     sender_channel = CLIENTS.get(sender_socket, {}).get('channel', 'general')
@@ -91,7 +97,7 @@ def broadcast(message, sender_socket=None):
         if info.get('channel', 'general') == sender_channel:
             try:
                 client_socket.sendall((json.dumps(message) + '\n').encode())
-                logger.info(f"[ENVOI #{sender_channel}] -> {info['username']}: {message['content']}")
+                logger.info(f"[ENVOI #{sender_channel}] -> {info['username']}: {message.get('content', '')}")
             except Exception as e:
                 logger.error(f"[ERREUR ENVOI] {info['username']}: {e}")
                 to_remove.append(client_socket)
@@ -128,17 +134,16 @@ def handle_client(client_socket):
                 msg = json.loads(line)
                 if msg['type'] == 'register':
                     with LOCK:
-                        if msg['username'] in USERS:
-                            response = {'type': 'error', 'message': 'Username already exists.'}
-                        else:
-                            USERS[msg['username']] = msg['password']
-                            save_users()
+                        success = register_user(msg['username'], msg['password'])
+                        if success:
                             response = {'type': 'register', 'status': 'ok'}
+                        else:
+                            response = {'type': 'error', 'message': 'Username already exists.'}
                         client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'login':
                     with LOCK:
-                        if USERS.get(msg['username']) == msg['password']:
+                        if check_user_password(msg['username'], msg['password']):
                             username = msg['username']
                             CLIENTS[client_socket] = {'username': username, 'channel': 'general'}
                             update_user_status(username, 'online')
@@ -244,7 +249,6 @@ def admin_interface():
 
 def main():
     init_database()
-    load_users()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
