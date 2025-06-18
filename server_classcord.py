@@ -28,15 +28,15 @@ logging.basicConfig(
 
 def init_database():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
+        c = conn.cursor()
+        c.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 state TEXT,
                 last_seen TEXT
             );
         """)
-        cursor.execute("""
+        c.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sender TEXT,
@@ -48,8 +48,8 @@ def init_database():
 
 def update_user_status(username, state):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
+        c = conn.cursor()
+        c.execute("""
             INSERT INTO users (username, state, last_seen)
             VALUES (?, ?, datetime('now'))
             ON CONFLICT(username) DO UPDATE SET
@@ -60,9 +60,9 @@ def update_user_status(username, state):
 
 def list_online_users():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT username FROM users WHERE state = 'online'")
-        return [row[0] for row in cursor.fetchall()]
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE state = 'online'")
+        return [row[0] for row in c.fetchall()]
 
 def load_users():
     global USERS
@@ -76,151 +76,125 @@ def save_users():
         pickle.dump(USERS, f)
     logging.info("[SAVE] Utilisateurs sauvegardés.")
 
-def send_system_message(to_socket, content):
-    message = {
-        'type': 'system',
-        'from': 'server',
-        'content': content,
-        'timestamp': datetime.now().isoformat()
-    }
-    try:
-        with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO messages (sender, content, timestamp)
-                VALUES (?, ?, ?)
-            """, ('server', content, message['timestamp']))
-            conn.commit()
-
-        to_socket.sendall((json.dumps(message) + '\n').encode())
-        logging.info(f"[SYSTÈME] Envoyé : {content}")
-    except Exception as e:
-        logging.error(f"[ERREUR SYSTÈME] : {e}")
-
-def broadcast_system_message(content):
-    message = {
-        'type': 'system',
-        'from': 'server',
-        'content': content,
-        'timestamp': datetime.now().isoformat()
-    }
-    try:
-        with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO messages (sender, content, timestamp)
-                VALUES (?, ?, ?)
-            """, ('server', content, message['timestamp']))
-            conn.commit()
-    except Exception as e:
-        logging.error(f"[ERREUR DB] Système : {e}")
-
-    for client_socket in CLIENTS:
-        try:
-            client_socket.sendall((json.dumps(message) + '\n').encode())
-        except Exception as e:
-            logging.error(f"[ERREUR BROADCAST] : {e}")
-
 def broadcast(message, sender_socket=None):
-    for client_socket, username in CLIENTS.items():
+    for sock, user in CLIENTS.items():
         try:
-            client_socket.sendall((json.dumps(message) + '\n').encode())
+            sock.sendall((json.dumps(message) + '\n').encode())
+            logging.debug(f"[BROADCAST] → {user}: {message}")
         except Exception as e:
-            logging.error(f"[ERREUR ENVOI {username}] : {e}")
+            logging.error(f"[ERREUR BROADCAST] {user}: {e}")
 
-def handle_client(client_socket):
-    buffer = ''
+def send_system_message(to_socket, content):
+    try:
+        message = {
+            'type': 'system',
+            'from': 'Serveur',
+            'content': content,
+            'timestamp': datetime.now().isoformat()
+        }
+        to_socket.sendall((json.dumps(message) + '\n').encode())
+        logging.debug(f"[SYSTEM] → {CLIENTS.get(to_socket, '???')}: {content}")
+    except Exception as e:
+        logging.error(f"[ERREUR SYSTEM MSG] {e}")
+
+def handle_client(sock):
+    address = sock.getpeername()
     username = None
-    address = client_socket.getpeername()
-    logging.info(f"[CONNEXION] Nouvelle connexion depuis {address}")
+    buffer = ''
+
+    logging.info(f"[CONNEXION] {address} connecté.")
+
     try:
         while True:
-            data = client_socket.recv(1024).decode()
+            data = sock.recv(1024).decode()
             if not data:
                 break
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
-                msg = json.loads(line)
+                logging.debug(f"[RECU] {address} > {line}")
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError as e:
+                    logging.error(f"[ERREUR JSON] {address}: {e}")
+                    continue
 
-                if msg['type'] == 'register':
+                mtype = msg.get('type', 'inconnu')
+
+                if mtype == 'register':
+                    logging.info(f"[REGISTER] Tentative de {msg['username']} depuis {address}")
                     with LOCK:
                         if msg['username'] in USERS:
-                            response = {'type': 'error', 'message': 'Username already exists.'}
+                            sock.sendall(json.dumps({'type': 'error', 'message': 'Username already exists.'}).encode() + b'\n')
+                            logging.warning(f"[REGISTER-ECHEC] {msg['username']} existe déjà.")
                         else:
                             USERS[msg['username']] = msg['password']
                             save_users()
-                            response = {'type': 'register', 'status': 'ok'}
-                        client_socket.sendall((json.dumps(response) + '\n').encode())
+                            sock.sendall(json.dumps({'type': 'register', 'status': 'ok'}).encode() + b'\n')
+                            logging.info(f"[REGISTER-OK] {msg['username']} enregistré.")
 
-                elif msg['type'] == 'login':
+                elif mtype == 'login':
+                    logging.info(f"[LOGIN] Tentative de {msg['username']} depuis {address}")
                     with LOCK:
                         if USERS.get(msg['username']) == msg['password']:
                             username = msg['username']
-                            CLIENTS[client_socket] = username
+                            CLIENTS[sock] = username
                             update_user_status(username, 'online')
-
-                            response = {'type': 'login', 'status': 'ok'}
-                            client_socket.sendall((json.dumps(response) + '\n').encode())
-
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
-                            broadcast_system_message(f"{username} est connecté.")
-                            logging.info(f"[LOGIN] {username} connecté")
-
-                            client_socket.sendall((json.dumps({
-                                'type': 'list_users',
-                                'users': list_online_users()
-                            }) + '\n').encode())
+                            sock.sendall(json.dumps({'type': 'login', 'status': 'ok'}).encode() + b'\n')
+                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, sock)
+                            send_system_message(sock, f"Bienvenue {username} !")
+                            logging.info(f"[LOGIN-OK] {username} connecté depuis {address}")
                         else:
-                            response = {'type': 'error', 'message': 'Login failed.'}
-                            client_socket.sendall((json.dumps(response) + '\n').encode())
+                            sock.sendall(json.dumps({'type': 'error', 'message': 'Login failed.'}).encode() + b'\n')
+                            logging.warning(f"[LOGIN-ECHEC] {msg['username']} mauvaise authentification.")
 
-                elif msg['type'] == 'message':
+                elif mtype == 'message':
                     if not username:
                         username = msg.get('from', 'invité')
                         with LOCK:
-                            CLIENTS[client_socket] = username
+                            CLIENTS[sock] = username
 
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
+
                     try:
                         with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                INSERT INTO messages (sender, content, timestamp)
-                                VALUES (?, ?, ?)
-                            """, (username, msg['content'], msg['timestamp']))
+                            c = conn.cursor()
+                            c.execute("INSERT INTO messages (sender, content, timestamp) VALUES (?, ?, ?)",
+                                      (username, msg['content'], msg['timestamp']))
                             conn.commit()
                     except Exception as e:
-                        logging.error(f"[ERREUR DB MSG] : {e}")
+                        logging.error(f"[ERREUR DB MESSAGE] {username}: {e}")
+
+                    logging.info(f"[MESSAGE] {username} ({address}) > {msg['content']}")
                     broadcast(msg)
 
-                elif msg['type'] == 'status' and username:
+                elif mtype == 'status' and username:
                     update_user_status(username, msg['state'])
-                    broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
+                    broadcast({'type': 'status', 'user': username, 'state': msg['state']}, sock)
+                    logging.info(f"[STATUS] {username} est maintenant {msg['state']}")
 
     except Exception as e:
-        logging.error(f"[ERREUR CLIENT {username}] : {e}")
+        logging.error(f"[ERREUR] {address} ({username}) : {e}")
     finally:
         if username:
             update_user_status(username, 'offline')
-            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
-            broadcast_system_message(f"{username} s'est déconnecté.")
+            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, sock)
+            logging.info(f"[DECONNEXION] {username} ({address}) déconnecté")
         with LOCK:
-            CLIENTS.pop(client_socket, None)
-        client_socket.close()
-        logging.info(f"[DECONNEXION] {address} déconnecté")
+            CLIENTS.pop(sock, None)
+        sock.close()
 
 def main():
     init_database()
     load_users()
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen()
-    logging.info(f"[SERVEUR] En écoute sur {HOST}:{PORT}")
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((HOST, PORT))
+    server.listen()
+    logging.info(f"[DEMARRAGE] Serveur lancé sur {HOST}:{PORT}")
     while True:
-        client_socket, _ = server_socket.accept()
-        threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
+        client, addr = server.accept()
+        threading.Thread(target=handle_client, args=(client,), daemon=True).start()
 
 if __name__ == '__main__':
     main()
