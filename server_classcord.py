@@ -22,6 +22,7 @@ logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s -
 
 # -- SQLite: mise à jour du statut utilisateur --
 def update_user_status(username, state):
+    print(f"[DEBUG] update_user_status called: {username} => {state}")
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
