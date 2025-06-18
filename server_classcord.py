@@ -7,6 +7,9 @@ import logging
 import sqlite3
 from datetime import datetime
 
+log_dir = os.path.dirname('/home/louka/classcord-server/debug.log')
+os.makedirs(log_dir, exist_ok=True)
+
 HOST = '0.0.0.0'
 PORT = 12345
 
