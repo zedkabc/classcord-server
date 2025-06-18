@@ -20,8 +20,8 @@ LOCK = threading.Lock()
 LOG_FILE = '/var/log/classcord.log'
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
 
-def update_user_status(username, state):
-    print(f"[DEBUG] update_user_status called: {username} => {state}")
+# -- Initialisation de la base SQLite --
+def init_database():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -32,6 +32,22 @@ def update_user_status(username, state):
         );
     """)
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT,
+            content TEXT,
+            timestamp TEXT
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+# -- Mise à jour du statut utilisateur dans la base SQLite --
+def update_user_status(username, state):
+    print(f"[DEBUG] update_user_status called: {username} => {state}")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
         INSERT INTO users (username, state, last_seen)
         VALUES (?, ?, datetime('now'))
         ON CONFLICT(username) DO UPDATE SET
@@ -41,6 +57,16 @@ def update_user_status(username, state):
     conn.commit()
     conn.close()
 
+# -- Récupérer la liste des utilisateurs en ligne --
+def list_online_users():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users WHERE state = 'online'")
+    users = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return users
+
+# -- Chargement et sauvegarde utilisateurs depuis fichier .pkl --
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
@@ -53,8 +79,8 @@ def save_users():
         pickle.dump(USERS, f)
     logging.info("[SAVE] Utilisateurs sauvegardés.")
 
-# Modif ici : broadcast envoie à **tout le monde y compris l'émetteur**
-def broadcast(message):
+# -- Diffusion d’un message à tous, y compris l’émetteur --
+def broadcast(message, sender_socket=None):
     for client_socket, username in CLIENTS.items():
         try:
             client_socket.sendall((json.dumps(message) + '\n').encode())
@@ -62,6 +88,7 @@ def broadcast(message):
         except Exception as e:
             logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
 
+# -- Traitement d’un client connecté --
 def handle_client(client_socket):
     buffer = ''
     username = None
@@ -93,14 +120,28 @@ def handle_client(client_socket):
                         if USERS.get(msg['username']) == msg['password']:
                             username = msg['username']
                             CLIENTS[client_socket] = username
-                            update_user_status(username, 'online')
+                            update_user_status(username, 'online')  # 🔹 SQLite
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'})
+                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
                             logging.info(f"[LOGIN] {username} connecté")
+
+                            # Envoi la liste des connectés au client qui vient de se connecter
+                            online_users = list_online_users()
+                            client_socket.sendall((json.dumps({
+                                'type': 'list_users',
+                                'users': online_users
+                            }) + '\n').encode())
+
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
+
+                elif msg['type'] == 'list_users':
+                    # client demande la liste des connectés
+                    online_users = list_online_users()
+                    response = {'type': 'list_users', 'users': online_users}
+                    client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'message':
                     if not username:
@@ -112,6 +153,7 @@ def handle_client(client_socket):
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
 
+                    # Enregistrement dans la base SQLite
                     try:
                         conn = sqlite3.connect(DB_FILE)
                         cursor = conn.cursor()
@@ -126,45 +168,25 @@ def handle_client(client_socket):
                         logging.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
 
                     logging.info(f"[MSG] {username} >> {msg['content']}")
-                    broadcast(msg)  # envoi à tout le monde y compris émetteur
+                    broadcast(msg)  # Diffuse aussi au client qui envoie
 
                 elif msg['type'] == 'status' and username:
-                    update_user_status(username, msg['state'])
-                    broadcast({'type': 'status', 'user': username, 'state': msg['state']})
+                    update_user_status(username, msg['state'])  # 🔹 SQLite
+                    broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
                     logging.info(f"[STATUS] {username} est maintenant {msg['state']}")
 
     except Exception as e:
         logging.error(f'[ERREUR] Problème avec {address} ({username}): {e}')
     finally:
         if username:
-            update_user_status(username, 'offline')
-            broadcast({'type': 'status', 'user': username, 'state': 'offline'})
+            update_user_status(username, 'offline')  # 🔹 SQLite
+            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
         logging.info(f"[DECONNEXION] {address} déconnecté")
 
-def init_database():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            state TEXT,
-            last_seen TEXT
-        );
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender TEXT,
-            content TEXT,
-            timestamp TEXT
-        );
-    """)
-    conn.commit()
-    conn.close()
-
+# -- Démarrage du serveur --
 def main():
     init_database()
     load_users()
@@ -172,6 +194,7 @@ def main():
     server_socket.bind((HOST, PORT))
     server_socket.listen()
     logging.info(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
+    print(f"[INFO] Serveur en écoute sur {HOST}:{PORT}")
     while True:
         client_socket, addr = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
