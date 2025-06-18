@@ -16,14 +16,27 @@ CLIENTS = {}  # socket: username
 USERS = {}    # username: password
 LOCK = threading.Lock()
 
-LOG_FILE = '/var/log/classcord.log'
+LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
+
+# Handler debug.log (tout)
+debug_handler = logging.FileHandler('debug.log')
+debug_handler.setLevel(logging.DEBUG)
+debug_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+
+# Handler audit.log (niveau INFO et plus)
+audit_handler = logging.FileHandler('audit.log')
+audit_handler.setLevel(logging.INFO)
+audit_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+
+# Console (optionnel)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+
+# Application root logger
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
+    handlers=[debug_handler, audit_handler, console_handler]
 )
 
 def init_database():
