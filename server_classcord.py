@@ -10,14 +10,13 @@ HOST = '0.0.0.0'
 PORT = 12345
 
 USER_FILE = 'users.pkl'
-CLIENTS = {}  # socket: username
+CLIENTS = {}  # socket: {'username': str, 'channel': str}
 USERS = {}    # username: password
 LOCK = threading.Lock()
 
-# Configuration du logging
+# Log vers /var/log/classcord/classcord.log
 LOG_DIR = '/var/log/classcord'
 LOG_FILE = os.path.join(LOG_DIR, 'classcord.log')
-
 os.makedirs(LOG_DIR, exist_ok=True)
 
 logging.basicConfig(
@@ -39,19 +38,22 @@ def save_users():
     logging.info("Utilisateurs sauvegardés.")
 
 def broadcast(message, sender_socket=None):
-    for client_socket, username in CLIENTS.items():
-        if client_socket != sender_socket:
+    target_channel = message.get('channel', '#général')
+    for client_socket, info in CLIENTS.items():
+        if client_socket != sender_socket and info.get('channel') == target_channel:
             try:
                 client_socket.sendall((json.dumps(message) + '\n').encode())
-                logging.info(f"Message envoyé à {username} : {message}")
+                logging.info(f"Message envoyé à {info['username']} dans {target_channel}: {message}")
             except Exception as e:
-                logging.error(f"Échec d'envoi à {username} : {e}")
+                logging.error(f"Échec d'envoi à {info['username']}: {e}")
 
 def handle_client(client_socket):
     buffer = ''
     username = None
+    channel = "#général"
     address = client_socket.getpeername()
-    logging.info(f"Nouvelle connexion depuis {address}")
+    logging.info(f"Connexion depuis {address}")
+
     try:
         while True:
             data = client_socket.recv(1024).decode()
@@ -63,7 +65,9 @@ def handle_client(client_socket):
                 logging.info(f"Reçu de {address} >> {line}")
                 msg = json.loads(line)
 
-                if msg['type'] == 'register':
+                msg_type = msg.get('type')
+
+                if msg_type == 'register':
                     with LOCK:
                         if msg['username'] in USERS:
                             response = {'type': 'error', 'message': 'Username already exists.'}
@@ -73,40 +77,42 @@ def handle_client(client_socket):
                             response = {'type': 'register', 'status': 'ok'}
                         client_socket.sendall((json.dumps(response) + '\n').encode())
 
-                elif msg['type'] == 'login':
+                elif msg_type == 'login':
                     with LOCK:
                         if USERS.get(msg['username']) == msg['password']:
                             username = msg['username']
-                            CLIENTS[client_socket] = username
+                            CLIENTS[client_socket] = {'username': username, 'channel': "#général"}
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
+                            broadcast({'type': 'status', 'user': username, 'state': 'online', 'channel': "#général"}, client_socket)
                             logging.info(f"{username} connecté")
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
 
-                elif msg['type'] == 'message':
+                elif msg_type == 'message':
                     if not username:
                         username = msg.get('from', 'invité')
-                        with LOCK:
-                            CLIENTS[client_socket] = username
+                        CLIENTS[client_socket] = {'username': username, 'channel': "#général"}
                         logging.info(f"Connexion invitée détectée : {username}")
 
+                    channel = msg.get('channel', '#général')
+                    CLIENTS[client_socket]['channel'] = channel
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
-                    logging.info(f"{username} >> {msg['content']}")
+                    msg['subtype'] = msg.get('subtype', 'global')
+                    logging.info(f"[{channel}] {username} >> {msg['content']}")
                     broadcast(msg, client_socket)
 
-                elif msg['type'] == 'status' and username:
-                    broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
+                elif msg_type == 'status' and username:
+                    broadcast({'type': 'status', 'user': username, 'state': msg['state'], 'channel': channel}, client_socket)
                     logging.info(f"{username} est maintenant {msg['state']}")
 
     except Exception as e:
-        logging.error(f"Problème avec {address} ({username}): {e}")
+        logging.error(f"Erreur avec {address} ({username}): {e}")
     finally:
         if username:
-            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
+            broadcast({'type': 'status', 'user': username, 'state': 'offline', 'channel': channel}, client_socket)
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
