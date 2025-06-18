@@ -171,7 +171,17 @@ CMD ["python", "server_classcord.py"]
 
 - Modification du code :
    Ajout d'une fonction send_system_message(to_username, content) qui envoie un message système    ciblé.
-   Ajout d'un exemple d’envoi de message système à un utilisateur quand il se connecte             (send_system_message(username, "Bienvenue sur Classcord !")).
+
+## Amélioration du logging technique du serveur
+
+### Enrichissement des logs avec les types de messages, noms d’utilisateurs, IP, erreurs détectées : 
+
+- Modification du code : Ajout dans chaque log les éléments utiles qui contextualisent l’événement (utilisateur, IP, type de message)
+
+### Généreration d'un fichier audit.log ou debug.log selon le niveau
+
+
+
 
 
 
