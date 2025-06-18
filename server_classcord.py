@@ -240,6 +240,7 @@ def admin_interface():
     """
     Interface texte d'administration côté serveur
     """
+    print("[ADMIN] Interface admin démarrée")
     while True:
         print("\n--- MENU ADMIN CLASSCORD ---")
         print("1. Afficher clients actifs")
