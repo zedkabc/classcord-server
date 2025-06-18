@@ -233,3 +233,78 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+import time
+
+def admin_interface():
+    """
+    Interface texte d'administration côté serveur
+    """
+    while True:
+        print("\n--- MENU ADMIN CLASSCORD ---")
+        print("1. Afficher clients actifs")
+        print("2. Envoyer une alerte globale")
+        print("3. Stopper un client")
+        print("4. Quitter serveur")
+        choice = input("Choix: ").strip()
+
+        if choice == '1':
+            print("Clients actifs :")
+            with LOCK:
+                for sock, user in CLIENTS.items():
+                    try:
+                        addr = sock.getpeername()
+                    except Exception:
+                        addr = "Inconnu"
+                    print(f" - {user} @ {addr}")
+        elif choice == '2':
+            alert = input("Texte de l'alerte : ").strip()
+            if alert:
+                msg = {
+                    'type': 'system',
+                    'content': alert,
+                    'timestamp': datetime.now().isoformat()
+                }
+                broadcast(msg)
+                print("Alerte envoyée à tous les clients.")
+        elif choice == '3':
+            user_to_kick = input("Nom du client à stopper : ").strip()
+            found = False
+            with LOCK:
+                for sock, user in list(CLIENTS.items()):
+                    if user == user_to_kick:
+                        print(f"Déconnexion de {user}...")
+                        try:
+                            sock.shutdown(socket.SHUT_RDWR)
+                            sock.close()
+                        except Exception as e:
+                            print(f"Erreur en fermant la socket : {e}")
+                        CLIENTS.pop(sock, None)
+                        found = True
+                        update_user_status(user, 'offline')
+                        broadcast({'type': 'status', 'user': user, 'state': 'offline'})
+                        break
+            if not found:
+                print(f"Aucun client nommé '{user_to_kick}' trouvé.")
+        elif choice == '4':
+            print("Arrêt du serveur demandé.")
+            os._exit(0)  # Quitte immédiatement
+        else:
+            print("Choix invalide. Réessayez.")
+
+def main():
+    init_database()
+    load_users()
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((HOST, PORT))
+    server_socket.listen()
+    logging.info(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
+    print(f"[INFO] Serveur en écoute sur {HOST}:{PORT}")
+
+    # Thread admin
+    threading.Thread(target=admin_interface, daemon=True).start()
+
+    while True:
+        client_socket, addr = server_socket.accept()
+        threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
+
