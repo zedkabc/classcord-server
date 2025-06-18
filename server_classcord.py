@@ -91,14 +91,10 @@ def broadcast(message, sender_socket=None):
     for client_socket, username in CLIENTS.items():
         try:
             client_socket.sendall((json.dumps(message) + '\n').encode())
-            logging.debug(f"[ENVOI] Message envoyé à {username} : {message}")
+            logging.info(f"[ENVOI] Message envoyé à {username} : {message}")
         except Exception as e:
             logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
             to_remove.append(client_socket)
-    with LOCK:
-        for sock in to_remove:
-            CLIENTS.pop(sock, None)
-            sock.close()
 
 # -- Traitement client --
 def handle_client(client_socket):
