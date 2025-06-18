@@ -123,10 +123,12 @@ def handle_client(client_socket):
     buffer = ''
     username = None
     address = client_socket.getpeername()
+    logger.info(f"Nouvelle connexion de {address}")
     try:
         while True:
             data = client_socket.recv(1024).decode()
             if not data:
+                logger.info(f"Connexion fermée par le client {address} ({username})")
                 break
             buffer += data
             while '\n' in buffer:
@@ -144,14 +146,17 @@ def handle_client(client_socket):
 
                 msg_type = msg.get('type')
                 if not msg_type:
-                    continue  # message invalide, ignore
+                    logger.warning(f"Message sans type reçu de {address}")
+                    continue
 
                 if msg_type == 'register':
                     with LOCK:
                         success = register_user(msg.get('username', ''), msg.get('password', ''))
                         if success:
+                            logger.info(f"Nouvel utilisateur inscrit : {msg.get('username', '')}")
                             response = {'type': 'register', 'status': 'ok'}
                         else:
+                            logger.info(f"Inscription échouée, utilisateur existant : {msg.get('username', '')}")
                             response = {'type': 'error', 'message': 'Username already exists.'}
                         client_socket.sendall((json.dumps(response) + '\n').encode())
 
@@ -161,6 +166,7 @@ def handle_client(client_socket):
                             username = msg['username']
                             CLIENTS[client_socket] = {'username': username, 'channel': 'general'}
                             update_user_status(username, 'online')
+                            logger.info(f"Utilisateur connecté : {username} depuis {address}")
                             client_socket.sendall((json.dumps({'type': 'login', 'status': 'ok'}) + '\n').encode())
                             broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
 
@@ -172,20 +178,24 @@ def handle_client(client_socket):
 
                             send_system_message(f"{username} a rejoint le salon #general.", 'general')
                         else:
+                            logger.info(f"Échec connexion utilisateur : {msg.get('username', '')} depuis {address}")
                             client_socket.sendall((json.dumps({'type': 'error', 'message': 'Login failed.'}) + '\n').encode())
 
                 elif msg_type == 'join_channel':
                     if client_socket in CLIENTS:
                         channel_name = msg.get('channel', 'general')
+                        old_channel = CLIENTS[client_socket]['channel']
                         CLIENTS[client_socket]['channel'] = channel_name
+                        logger.info(f"{CLIENTS[client_socket]['username']} a quitté #{old_channel} pour rejoindre #{channel_name}")
                         send_system_message(f"{CLIENTS[client_socket]['username']} a rejoint #{channel_name}.", channel_name)
 
                 elif msg_type == 'message':
                     if not username:
-                        # Ignore message si non connecté
+                        logger.warning(f"Message reçu d'un client non identifié {address}")
                         continue
                     content = msg.get('content')
                     if not content:
+                        logger.warning(f"Message vide reçu de {username}")
                         continue
                     channel = CLIENTS[client_socket]['channel']
                     msg['from'] = username
@@ -200,6 +210,7 @@ def handle_client(client_socket):
                         """, (username, content, msg['timestamp'], channel))
                         conn.commit()
 
+                    logger.info(f"Message de {username} dans #{channel} : {content}")
                     broadcast(msg, sender_socket=client_socket)
 
                 elif msg_type == 'list_users':
@@ -210,6 +221,7 @@ def handle_client(client_socket):
                     state = msg.get('state')
                     if state:
                         update_user_status(username, state)
+                        logger.info(f"Changement d'état utilisateur {username} -> {state}")
                         broadcast({'type': 'status', 'user': username, 'state': state}, client_socket)
 
     except Exception as e:
@@ -219,6 +231,9 @@ def handle_client(client_socket):
             update_user_status(username, 'offline')
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
             send_system_message(f"{username} a quitté le salon.")
+            logger.info(f"Utilisateur déconnecté : {username} ({address})")
+        else:
+            logger.info(f"Connexion fermée sans login depuis {address}")
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
