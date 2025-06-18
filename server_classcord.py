@@ -3,66 +3,73 @@ import threading
 import json
 import pickle
 import os
+import logging
+import sqlite3
 from datetime import datetime
 
 HOST = '0.0.0.0'
 PORT = 12345
 
 USER_FILE = 'users.pkl'
+DB_FILE = 'classcord.db'
 CLIENTS = {}  # socket: username
 USERS = {}    # username: password
 LOCK = threading.Lock()
 
+# Configuration du logging vers /var/log/classcord.log
+LOG_FILE = '/var/log/classcord.log'
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
+
+# -- SQLite: mise à jour du statut utilisateur --
+def update_user_status(username, state):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            state TEXT,
+            last_seen TEXT
+        );
+    """)
+    cursor.execute("""
+        INSERT INTO users (username, state, last_seen)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(username) DO UPDATE SET
+            state = excluded.state,
+            last_seen = datetime('now');
+    """, (username, state))
+    conn.commit()
+    conn.close()
+
+# -- Chargement et sauvegarde utilisateurs depuis fichier .pkl --
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
         with open(USER_FILE, 'rb') as f:
             USERS = pickle.load(f)
-    print(f"[INIT] Utilisateurs chargés: {list(USERS.keys())}")
+    logging.info(f"[INIT] Utilisateurs chargés: {list(USERS.keys())}")
 
 def save_users():
     with open(USER_FILE, 'wb') as f:
         pickle.dump(USERS, f)
-    print("[SAVE] Utilisateurs sauvegardés.")
+    logging.info("[SAVE] Utilisateurs sauvegardés.")
 
+# -- Diffusion d’un message à tous sauf l’émetteur --
 def broadcast(message, sender_socket=None):
     for client_socket, username in CLIENTS.items():
         if client_socket != sender_socket:
             try:
                 client_socket.sendall((json.dumps(message) + '\n').encode())
-                print(f"[ENVOI] Message envoyé à {username} : {message}")
+                logging.info(f"[ENVOI] Message envoyé à {username} : {message}")
             except Exception as e:
-                print(f"[ERREUR] Échec d'envoi à {username} : {e}")
+                logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
 
-def send_system_message(to_username, content):
-    with LOCK:
-        for client_socket, username in CLIENTS.items():
-            if username == to_username:
-                try:
-                    system_msg = {
-                        "type": "system",
-                        "content": content,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    client_socket.sendall((json.dumps(system_msg) + '\n').encode())
-                    print(f"[SYSTEM] Message envoyé à {to_username} : {content}")
-                except Exception as e:
-                    print(f"[ERREUR] Impossible d'envoyer le message système à {to_username} : {e}")
-                break
-        else:
-            print(f"[WARN] Utilisateur {to_username} non connecté, message système non envoyé.")
-
-def broadcast_system_message(content, exclude_username=None):
-    with LOCK:
-        for username in CLIENTS.values():
-            if username != exclude_username:
-                send_system_message(username, content)
-
+# -- Traitement d’un client connecté --
 def handle_client(client_socket):
     buffer = ''
     username = None
     address = client_socket.getpeername()
-    print(f"[CONNEXION] Nouvelle connexion depuis {address}")
+    logging.info(f"[CONNEXION] Nouvelle connexion depuis {address}")
     try:
         while True:
             data = client_socket.recv(1024).decode()
@@ -71,7 +78,7 @@ def handle_client(client_socket):
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
-                print(f"[RECU] {address} >> {line}")
+                logging.info(f"[RECU] {address} >> {line}")
                 msg = json.loads(line)
 
                 if msg['type'] == 'register':
@@ -89,13 +96,11 @@ def handle_client(client_socket):
                         if USERS.get(msg['username']) == msg['password']:
                             username = msg['username']
                             CLIENTS[client_socket] = username
+                            update_user_status(username, 'online')  # 🔹 SQLite
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
-                            # Nouveau : envoi message système de bienvenue
-                            send_system_message(username, "Bienvenue sur Classcord !")
-                            # Nouveau : informer les autres utilisateurs
-                            broadcast_system_message(f"{username} vient de rejoindre le chat.", exclude_username=username)
-                            print(f"[LOGIN] {username} connecté")
+                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
+                            logging.info(f"[LOGIN] {username} connecté")
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
@@ -105,35 +110,36 @@ def handle_client(client_socket):
                         username = msg.get('from', 'invité')
                         with LOCK:
                             CLIENTS[client_socket] = username
-                        print(f"[INFO] Connexion invitée détectée : {username}")
+                        logging.info(f"[INFO] Connexion invitée détectée : {username}")
 
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
-                    print(f"[MSG] {username} >> {msg['content']}")
+                    logging.info(f"[MSG] {username} >> {msg['content']}")
                     broadcast(msg, client_socket)
 
                 elif msg['type'] == 'status' and username:
+                    update_user_status(username, msg['state'])  # 🔹 SQLite
                     broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
-                    print(f"[STATUS] {username} est maintenant {msg['state']}")
+                    logging.info(f"[STATUS] {username} est maintenant {msg['state']}")
 
     except Exception as e:
-        print(f'[ERREUR] Problème avec {address} ({username}):', e)
+        logging.error(f'[ERREUR] Problème avec {address} ({username}): {e}')
     finally:
         if username:
-            # Informer les autres du départ
-            broadcast_system_message(f"{username} a quitté le chat.", exclude_username=username)
+            update_user_status(username, 'offline')  # 🔹 SQLite
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
-        print(f"[DECONNEXION] {address} déconnecté")
+        logging.info(f"[DECONNEXION] {address} déconnecté")
 
+# -- Démarrage du serveur --
 def main():
     load_users()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
-    print(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
+    logging.info(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
     while True:
         client_socket, addr = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
