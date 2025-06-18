@@ -107,16 +107,32 @@ def handle_client(client_socket):
                             client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'message':
-                    if not username:
-                        username = msg.get('from', 'invité')
-                        with LOCK:
-                            CLIENTS[client_socket] = username
-                        logging.info(f"[INFO] Connexion invitée détectée : {username}")
+    if not username:
+        username = msg.get('from', 'invité')
+        with LOCK:
+            CLIENTS[client_socket] = username
+        logging.info(f"[INFO] Connexion invitée détectée : {username}")
 
-                    msg['from'] = username
-                    msg['timestamp'] = datetime.now().isoformat()
-                    logging.info(f"[MSG] {username} >> {msg['content']}")
-                    broadcast(msg, client_socket)
+    msg['from'] = username
+    msg['timestamp'] = datetime.now().isoformat()
+
+    # 🔽 Enregistrement dans la base SQLite
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO messages (sender, content, timestamp)
+            VALUES (?, ?, ?)
+        """, (username, msg['content'], msg['timestamp']))
+        conn.commit()
+        conn.close()
+        logging.info(f"[DB] Message enregistré pour {username}")
+    except Exception as e:
+        logging.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
+
+    logging.info(f"[MSG] {username} >> {msg['content']}")
+    broadcast(msg, client_socket)
+
 
                 elif msg['type'] == 'status' and username:
                     update_user_status(username, msg['state'])  # 🔹 SQLite
