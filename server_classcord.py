@@ -55,15 +55,13 @@ def save_users():
         pickle.dump(USERS, f)
     logging.info("[SAVE] Utilisateurs sauvegardés.")
 
-# -- Diffusion d’un message à tous sauf l’émetteur --
 def broadcast(message, sender_socket=None):
     for client_socket, username in CLIENTS.items():
-        if client_socket != sender_socket:
-            try:
-                client_socket.sendall((json.dumps(message) + '\n').encode())
-                logging.info(f"[ENVOI] Message envoyé à {username} : {message}")
-            except Exception as e:
-                logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
+        try:
+            client_socket.sendall((json.dumps(message) + '\n').encode())
+            logging.info(f"[ENVOI] Message envoyé à {username} : {message}")
+        except Exception as e:
+            logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
 
 # -- Traitement d’un client connecté --
 def handle_client(client_socket):
