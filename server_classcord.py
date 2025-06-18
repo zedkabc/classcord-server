@@ -134,8 +134,31 @@ def handle_client(client_socket):
         client_socket.close()
         logging.info(f"[DECONNEXION] {address} déconnecté")
 
+def init_database():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            state TEXT,
+            last_seen TEXT
+        );
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT,
+            content TEXT,
+            timestamp TEXT
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+
 # -- Démarrage du serveur --
 def main():
+    init_database()
     load_users()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
