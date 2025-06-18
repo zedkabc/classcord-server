@@ -42,6 +42,7 @@ def send_system_message(to_username, content):
                     system_msg = {
                         "type": "system",
                         "content": content,
+                        "timestamp": datetime.now().isoformat()
                     }
                     client_socket.sendall((json.dumps(system_msg) + '\n').encode())
                     print(f"[SYSTEM] Message envoyé à {to_username} : {content}")
@@ -50,6 +51,12 @@ def send_system_message(to_username, content):
                 break
         else:
             print(f"[WARN] Utilisateur {to_username} non connecté, message système non envoyé.")
+
+def broadcast_system_message(content, exclude_username=None):
+    with LOCK:
+        for username in CLIENTS.values():
+            if username != exclude_username:
+                send_system_message(username, content)
 
 def handle_client(client_socket):
     buffer = ''
@@ -84,10 +91,11 @@ def handle_client(client_socket):
                             CLIENTS[client_socket] = username
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
-                            print(f"[LOGIN] {username} connecté")
-                            # Exemple d'envoi d'un message système au nouvel utilisateur
+                            # Nouveau : envoi message système de bienvenue
                             send_system_message(username, "Bienvenue sur Classcord !")
+                            # Nouveau : informer les autres utilisateurs
+                            broadcast_system_message(f"{username} vient de rejoindre le chat.", exclude_username=username)
+                            print(f"[LOGIN] {username} connecté")
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
@@ -112,6 +120,8 @@ def handle_client(client_socket):
         print(f'[ERREUR] Problème avec {address} ({username}):', e)
     finally:
         if username:
+            # Informer les autres du départ
+            broadcast_system_message(f"{username} a quitté le chat.", exclude_username=username)
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
         with LOCK:
             CLIENTS.pop(client_socket, None)
