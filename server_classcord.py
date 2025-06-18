@@ -16,7 +16,6 @@ CLIENTS = {}  # socket: username
 USERS = {}    # username: password
 LOCK = threading.Lock()
 
-# Logging vers fichier et console (niveau DEBUG pour console)
 LOG_FILE = '/var/log/classcord.log'
 logging.basicConfig(
     level=logging.DEBUG,
@@ -27,7 +26,6 @@ logging.basicConfig(
     ]
 )
 
-# -- Initialisation base SQLite --
 def init_database():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
@@ -48,9 +46,7 @@ def init_database():
         """)
         conn.commit()
 
-# -- Mise à jour statut utilisateur --
 def update_user_status(username, state):
-    logging.debug(f"[DB] update_user_status called: {username} => {state}")
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -62,17 +58,12 @@ def update_user_status(username, state):
         """, (username, state))
         conn.commit()
 
-# -- Récupération liste des connectés --
 def list_online_users():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT username FROM users WHERE state = 'online'")
-        rows = cursor.fetchall()
-        users = [row[0] for row in rows]
-        logging.debug(f"[DB] Utilisateurs en ligne : {users}")
-        return users
+        return [row[0] for row in cursor.fetchall()]
 
-# -- Chargement/sauvegarde utilisateurs depuis fichier .pkl --
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
@@ -85,18 +76,58 @@ def save_users():
         pickle.dump(USERS, f)
     logging.info("[SAVE] Utilisateurs sauvegardés.")
 
-# -- Envoi message à tous, y compris émetteur --
+def send_system_message(to_socket, content):
+    message = {
+        'type': 'system',
+        'from': 'server',
+        'content': content,
+        'timestamp': datetime.now().isoformat()
+    }
+    try:
+        with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO messages (sender, content, timestamp)
+                VALUES (?, ?, ?)
+            """, ('server', content, message['timestamp']))
+            conn.commit()
+
+        to_socket.sendall((json.dumps(message) + '\n').encode())
+        logging.info(f"[SYSTÈME] Envoyé : {content}")
+    except Exception as e:
+        logging.error(f"[ERREUR SYSTÈME] : {e}")
+
+def broadcast_system_message(content):
+    message = {
+        'type': 'system',
+        'from': 'server',
+        'content': content,
+        'timestamp': datetime.now().isoformat()
+    }
+    try:
+        with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO messages (sender, content, timestamp)
+                VALUES (?, ?, ?)
+            """, ('server', content, message['timestamp']))
+            conn.commit()
+    except Exception as e:
+        logging.error(f"[ERREUR DB] Système : {e}")
+
+    for client_socket in CLIENTS:
+        try:
+            client_socket.sendall((json.dumps(message) + '\n').encode())
+        except Exception as e:
+            logging.error(f"[ERREUR BROADCAST] : {e}")
+
 def broadcast(message, sender_socket=None):
-    to_remove = []
     for client_socket, username in CLIENTS.items():
         try:
             client_socket.sendall((json.dumps(message) + '\n').encode())
-            logging.info(f"[ENVOI] Message envoyé à {username} : {message}")
         except Exception as e:
-            logging.error(f"[ERREUR] Échec d'envoi à {username} : {e}")
-            to_remove.append(client_socket)
+            logging.error(f"[ERREUR ENVOI {username}] : {e}")
 
-# -- Traitement client --
 def handle_client(client_socket):
     buffer = ''
     username = None
@@ -110,7 +141,6 @@ def handle_client(client_socket):
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
-                logging.info(f"[RECU] {address} >> {line}")
                 msg = json.loads(line)
 
                 if msg['type'] == 'register':
@@ -129,37 +159,30 @@ def handle_client(client_socket):
                             username = msg['username']
                             CLIENTS[client_socket] = username
                             update_user_status(username, 'online')
+
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
+
                             broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
+                            broadcast_system_message(f"{username} est connecté.")
                             logging.info(f"[LOGIN] {username} connecté")
 
-                            # Envoi liste des connectés au client
-                            online_users = list_online_users()
                             client_socket.sendall((json.dumps({
                                 'type': 'list_users',
-                                'users': online_users
+                                'users': list_online_users()
                             }) + '\n').encode())
-
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
-
-                elif msg['type'] == 'list_users':
-                    online_users = list_online_users()
-                    response = {'type': 'list_users', 'users': online_users}
-                    client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg['type'] == 'message':
                     if not username:
                         username = msg.get('from', 'invité')
                         with LOCK:
                             CLIENTS[client_socket] = username
-                        logging.info(f"[INFO] Connexion invitée détectée : {username}")
 
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
-
                     try:
                         with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
                             cursor = conn.cursor()
@@ -168,24 +191,21 @@ def handle_client(client_socket):
                                 VALUES (?, ?, ?)
                             """, (username, msg['content'], msg['timestamp']))
                             conn.commit()
-                        logging.debug(f"[DB] Message enregistré pour {username}")
                     except Exception as e:
-                        logging.error(f"[ERREUR DB] Impossible d'enregistrer le message : {e}")
-
-                    logging.info(f"[MSG] {username} >> {msg['content']}")
-                    broadcast(msg)  # Diffuse aussi au client qui envoie
+                        logging.error(f"[ERREUR DB MSG] : {e}")
+                    broadcast(msg)
 
                 elif msg['type'] == 'status' and username:
                     update_user_status(username, msg['state'])
                     broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
-                    logging.info(f"[STATUS] {username} est maintenant {msg['state']}")
 
     except Exception as e:
-        logging.error(f'[ERREUR] Problème avec {address} ({username}): {e}')
+        logging.error(f"[ERREUR CLIENT {username}] : {e}")
     finally:
         if username:
             update_user_status(username, 'offline')
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
+            broadcast_system_message(f"{username} s'est déconnecté.")
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
@@ -197,10 +217,9 @@ def main():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
-    logging.info(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
-    print(f"[INFO] Serveur en écoute sur {HOST}:{PORT}")
+    logging.info(f"[SERVEUR] En écoute sur {HOST}:{PORT}")
     while True:
-        client_socket, addr = server_socket.accept()
+        client_socket, _ = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
 
 if __name__ == '__main__':
