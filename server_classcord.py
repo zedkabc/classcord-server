@@ -27,20 +27,23 @@ def save_users():
     print("[SAVE] Utilisateurs sauvegardés.")
 
 def broadcast(message, sender_socket=None):
-    with LOCK:
-        for client_socket, username in CLIENTS.items():
-            if client_socket != sender_socket:
-                try:
-                    client_socket.sendall((json.dumps(message) + '\n').encode())
-                    print(f"[ENVOI] Message envoyé à {username} : {message}")
-                except Exception as e:
-                    print(f"[ERREUR] Échec d'envoi à {username} : {e}")
+    msg_str = json.dumps(message) + '\n'
+    for client_socket, username in list(CLIENTS.items()):
+        if client_socket != sender_socket:
+            try:
+                client_socket.sendall(msg_str.encode())
+                print(f"[ENVOI] à {username} : {message}")
+            except:
+                with LOCK:
+                    print(f"[ERREUR] Échec d'envoi à {username}. Déconnexion.")
+                    CLIENTS.pop(client_socket, None)
+                    client_socket.close()
 
 def handle_client(client_socket):
     buffer = ''
     username = None
     address = client_socket.getpeername()
-    print(f"[CONNEXION] Nouvelle connexion depuis {address}")
+    print(f"[CONNEXION] {address}")
     try:
         while True:
             data = client_socket.recv(1024).decode()
@@ -49,8 +52,8 @@ def handle_client(client_socket):
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
-                print(f"[RECU] {address} >> {line}")
                 msg = json.loads(line)
+                print(f"[RECU] {address} : {msg}")
 
                 if msg['type'] == 'register':
                     with LOCK:
@@ -70,7 +73,7 @@ def handle_client(client_socket):
                             response = {'type': 'login', 'status': 'ok'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
                             broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
-                            print(f"[LOGIN] {username} connecté")
+                            print(f"[LOGIN] {username} connecté.")
                         else:
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
@@ -80,8 +83,6 @@ def handle_client(client_socket):
                         username = msg.get('from', 'invité')
                         with LOCK:
                             CLIENTS[client_socket] = username
-                        print(f"[INFO] Connexion invitée détectée : {username}")
-
                     msg['from'] = username
                     msg['timestamp'] = datetime.now().isoformat()
                     print(f"[MSG] {username} >> {msg['content']}")
@@ -89,19 +90,29 @@ def handle_client(client_socket):
 
                 elif msg['type'] == 'status' and username:
                     broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
-                    print(f"[STATUS] {username} est maintenant {msg['state']}")
+                    print(f"[STATUS] {username} est {msg['state']}")
 
     except Exception as e:
-        print(f'[ERREUR] Problème avec {address} ({username}):', e)
+        print(f"[ERREUR] Client {address} ({username}) : {e}")
     finally:
         if username:
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
         with LOCK:
             CLIENTS.pop(client_socket, None)
         client_socket.close()
-        print(f"[DECONNEXION] {address} déconnecté")
+        print(f"[DECONNEXION] {address} / {username}")
 
-def handle_admin(client):
+def handle_admin():
+    admin_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    admin_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    admin_sock.bind((HOST, ADMIN_PORT))
+    admin_sock.listen()
+    print(f"[ADMIN] Console admin en écoute sur {HOST}:{ADMIN_PORT}")
+    while True:
+        client, _ = admin_sock.accept()
+        threading.Thread(target=handle_admin_connection, args=(client,), daemon=True).start()
+
+def handle_admin_connection(client):
     buffer = ''
     try:
         while True:
@@ -112,6 +123,7 @@ def handle_admin(client):
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
                 msg = json.loads(line)
+                print(f"[ADMIN CMD] {msg}")
 
                 if msg['type'] == 'kick':
                     target = msg.get('target')
@@ -119,53 +131,48 @@ def handle_admin(client):
                         for sock, user in list(CLIENTS.items()):
                             if user == target:
                                 try:
-                                    sock.sendall(json.dumps({'type': 'kick'}).encode() + b'\n')
+                                    sock.sendall(json.dumps({'type': 'kick'}).encode())
                                     sock.close()
-                                except Exception as e:
-                                    print(f"[ERREUR] Impossible de kicker {user} : {e}")
-                                finally:
-                                    CLIENTS.pop(sock, None)
+                                    CLIENTS.pop(sock)
+                                    print(f"[KICK] {target} expulsé.")
+                                except:
+                                    print(f"[KICK-FAIL] Impossible d’expulser {target}")
+                                break
 
                 elif msg['type'] == 'global_message':
                     content = msg.get('content', '')
                     if content:
-                        message = {
+                        global_msg = {
                             'type': 'message',
-                            'from': '[ADMIN]',
+                            'from': 'ADMIN',
                             'content': content,
                             'timestamp': datetime.now().isoformat()
                         }
-                        print(f"[ADMIN] Message global envoyé : {content}")
-                        broadcast(message)
+                        broadcast(global_msg)
 
                 elif msg['type'] == 'shutdown':
-                    print("[ADMIN] Demande d'arrêt reçue. Fermeture du serveur.")
+                    print("[ARRET] Arrêt demandé par l'admin.")
                     os._exit(0)
+
+                elif msg['type'] == 'get_users':
+                    with LOCK:
+                        users = list(CLIENTS.values())
+                    client.sendall((json.dumps({'users': users}) + '\n').encode())
+
     except Exception as e:
-        print("[ERREUR] Console admin :", e)
+        print(f"[ADMIN ERR] {e}")
     finally:
         client.close()
 
-def start_admin_server():
-    admin_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    admin_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    admin_socket.bind((HOST, ADMIN_PORT))
-    admin_socket.listen()
-    print(f"[ADMIN] Serveur admin en écoute sur le port {ADMIN_PORT}")
-    while True:
-        client, _ = admin_socket.accept()
-        threading.Thread(target=handle_admin, args=(client,), daemon=True).start()
-
 def main():
     load_users()
-    threading.Thread(target=start_admin_server, daemon=True).start()
-
+    threading.Thread(target=handle_admin, daemon=True).start()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
-    print(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
+    print(f"[SERVEUR] En écoute sur {HOST}:{PORT}")
     while True:
-        client_socket, addr = server_socket.accept()
+        client_socket, _ = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
 
 if __name__ == '__main__':
