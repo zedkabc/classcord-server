@@ -202,6 +202,9 @@ CMD ["python", "server_classcord.py"]
 - Fonctionnalités à jour
 - Logs cohérents, affichage client clair et réseau stable
 
+## Ajout de commentaires dans les scripts pour aider à la compréhension
+
+# FIN DU PROJET
 
 
 
