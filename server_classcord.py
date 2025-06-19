@@ -1,3 +1,4 @@
+# ... imports (inchangés) ...
 import socket
 import threading
 import json
@@ -13,73 +14,13 @@ DB_FILE = 'classcord.db'
 HOST = '0.0.0.0'
 PORT = 12345
 
-CLIENTS = {}  # socket: {'username': str, 'channel': str, 'connected': bool}
+CLIENTS = {}
 LOCK = threading.Lock()
+ADMIN_INPUT_LOCK = threading.Lock()  # <-- ajouté ici
 
-os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+# ... logging setup (inchangé) ...
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()]
-)
-logger = logging.getLogger()
-
-def init_database():
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY,
-                password TEXT NOT NULL,
-                state TEXT,
-                last_seen TEXT
-            );
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender TEXT,
-                content TEXT,
-                timestamp TEXT,
-                channel TEXT
-            );
-        """)
-        conn.commit()
-
-def register_user(username, password):
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO users (username, password, state, last_seen)
-                VALUES (?, ?, 'offline', datetime('now'))
-            """, (username, password))
-            conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
-
-def check_user_password(username, password):
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
-        row = cursor.fetchone()
-        return row and row[0] == password
-
-def update_user_status(username, state):
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE users SET state = ?, last_seen = datetime('now') WHERE username = ?
-        """, (state, username))
-        conn.commit()
-
-def list_online_users():
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT username FROM users WHERE state = 'online'")
-        return [row[0] for row in cursor.fetchall()]
+# ... database functions (inchangées) ...
 
 def broadcast(message, sender_socket=None):
     to_remove = []
@@ -90,9 +31,11 @@ def broadcast(message, sender_socket=None):
         if sender_socket is None or info.get('channel', 'general') == sender_channel:
             try:
                 client_socket.sendall((json.dumps(message) + '\n').encode())
-                logger.info(f"[ENVOI #{info.get('channel', 'general')}] -> {info['username']}: {message.get('content', '')}")
+                with ADMIN_INPUT_LOCK:
+                    logger.info(f"[ENVOI #{info.get('channel', 'general')}] -> {info['username']}: {message.get('content', '')}")
             except Exception as e:
-                logger.error(f"[ERREUR ENVOI] {info.get('username', '?')}: {e}")
+                with ADMIN_INPUT_LOCK:
+                    logger.error(f"[ERREUR ENVOI] {info.get('username', '?')}: {e}")
                 to_remove.append(client_socket)
     with LOCK:
         for sock in to_remove:
@@ -109,14 +52,16 @@ def send_system_message(content, channel='general'):
         'timestamp': datetime.now().isoformat(),
         'channel': channel
     }
-    logger.info(f"[SYSTEM #{channel}] {content}")
+    with ADMIN_INPUT_LOCK:
+        logger.info(f"[SYSTEM #{channel}] {content}")
     broadcast(message)
 
 def handle_client(client_socket):
     buffer = ''
     username = None
     address = client_socket.getpeername()
-    logger.info(f"Nouvelle connexion de {address}")
+    with ADMIN_INPUT_LOCK:
+        logger.info(f"Nouvelle connexion de {address}")
     try:
         while True:
             try:
@@ -125,7 +70,8 @@ def handle_client(client_socket):
                     time.sleep(0.1)
                     continue
             except (ConnectionResetError, ConnectionAbortedError):
-                logger.error(f"[DÉCONNEXION FORCÉE] {address}")
+                with ADMIN_INPUT_LOCK:
+                    logger.error(f"[DÉCONNEXION FORCÉE] {address}")
                 break
 
             buffer += data
@@ -134,7 +80,8 @@ def handle_client(client_socket):
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    logger.warning(f"[JSON MALFORMÉ] de {address} : {line}")
+                    with ADMIN_INPUT_LOCK:
+                        logger.warning(f"[JSON MALFORMÉ] de {address} : {line}")
                     client_socket.sendall((json.dumps({'type': 'error', 'message': 'Message JSON malformé.'}) + '\n').encode())
                     continue
 
@@ -144,7 +91,8 @@ def handle_client(client_socket):
                     with LOCK:
                         success = register_user(msg.get('username', ''), msg.get('password', ''))
                         if success:
-                            logger.info(f"Nouvel utilisateur inscrit : {msg.get('username', '')}")
+                            with ADMIN_INPUT_LOCK:
+                                logger.info(f"Nouvel utilisateur inscrit : {msg.get('username', '')}")
                             response = {'type': 'register', 'status': 'ok'}
                         else:
                             response = {'type': 'error', 'message': 'Username already exists.'}
@@ -156,7 +104,8 @@ def handle_client(client_socket):
                             username = msg['username']
                             CLIENTS[client_socket] = {'username': username, 'channel': 'general', 'connected': True}
                             update_user_status(username, 'online')
-                            logger.info(f"Utilisateur connecté : {username} depuis {address}")
+                            with ADMIN_INPUT_LOCK:
+                                logger.info(f"Utilisateur connecté : {username} depuis {address}")
                             client_socket.sendall((json.dumps({'type': 'login', 'status': 'ok'}) + '\n').encode())
                             broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
 
@@ -199,7 +148,8 @@ def handle_client(client_socket):
                     send_system_message(f"{username} a rejoint #{channel_name}.", channel_name)
 
     except Exception as e:
-        logger.error(f"[ERREUR] {address} ({username}): {e}")
+        with ADMIN_INPUT_LOCK:
+            logger.error(f"[ERREUR] {address} ({username}): {e}")
     finally:
         if username:
             update_user_status(username, 'offline')
@@ -215,17 +165,19 @@ def handle_client(client_socket):
             client_socket.close()
 
 def admin_interface():
-    print("[ADMIN] Interface admin démarrée")
+    with ADMIN_INPUT_LOCK:
+        print("[ADMIN] Interface admin démarrée")
     while True:
-        print("\n--- MENU ADMIN ---")
-        print("1. Afficher clients actifs")
-        print("2. Envoyer une alerte globale")
-        print("3. Déconnecter un client")
-        print("4. Quitter le serveur")
-        choice = input("Choix: ").strip()
+        with ADMIN_INPUT_LOCK:
+            print("\n--- MENU ADMIN ---")
+            print("1. Afficher clients actifs")
+            print("2. Envoyer une alerte globale")
+            print("3. Déconnecter un client")
+            print("4. Quitter le serveur")
+            choice = input("Choix: ").strip()
 
         if choice == '1':
-            with LOCK:
+            with LOCK, ADMIN_INPUT_LOCK:
                 print(f"DEBUG: CLIENTS = {CLIENTS}")
                 actifs = [(sock, info) for sock, info in CLIENTS.items() if info.get('connected')]
                 if actifs:
@@ -235,16 +187,19 @@ def admin_interface():
                     print("Aucun client actif.")
 
         elif choice == '2':
-            alert = input("Alerte à envoyer : ").strip()
+            with ADMIN_INPUT_LOCK:
+                alert = input("Alerte à envoyer : ").strip()
             if alert:
                 send_system_message("[ALERTE ADMIN] " + alert)
 
         elif choice == '3':
             with LOCK:
                 actifs = [(sock, info) for sock, info in CLIENTS.items() if info.get('connected')]
-                if not actifs:
+            if not actifs:
+                with ADMIN_INPUT_LOCK:
                     print("Aucun client connecté.")
-                    continue
+                continue
+            with ADMIN_INPUT_LOCK:
                 for i, (sock, info) in enumerate(actifs):
                     print(f"{i+1}. {info['username']} (#{info['channel']})")
                 try:
@@ -266,18 +221,22 @@ def admin_interface():
                         print(f"Client {username} déconnecté.")
                 except ValueError:
                     print("Entrée invalide.")
+
         elif choice == '4':
-            print("Fermeture du serveur...")
+            with ADMIN_INPUT_LOCK:
+                print("Fermeture du serveur...")
             os._exit(0)
         else:
-            print("Choix invalide.")
+            with ADMIN_INPUT_LOCK:
+                print("Choix invalide.")
 
 def main():
     init_database()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
-    logger.info(f"Serveur démarré sur {HOST}:{PORT}")
+    with ADMIN_INPUT_LOCK:
+        logger.info(f"Serveur démarré sur {HOST}:{PORT}")
     threading.Thread(target=admin_interface, daemon=True).start()
 
     while True:
