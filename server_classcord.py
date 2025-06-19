@@ -6,6 +6,7 @@ import logging
 import sqlite3
 import time
 from datetime import datetime
+from colorlog import ColoredFormatter  # pip install colorlog
 
 LOG_FILE = '/home/louka/classcord-server/debug.log'
 DB_FILE = 'classcord.db'
@@ -22,15 +23,27 @@ os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 logger = logging.getLogger("classcord")
 logger.setLevel(logging.DEBUG)
 
+# Fichier log (sans couleur)
 file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_handler)
 
-# ✅ Affiche aussi les logs dans la console
+# Console avec couleur
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+console_handler.setLevel(logging.DEBUG)  # Affiche tout DEBUG et plus
+color_formatter = ColoredFormatter(
+    "%(log_color)s%(asctime)s - %(levelname)s - %(message)s",
+    datefmt='%H:%M:%S',
+    log_colors={
+        'DEBUG':    'cyan',
+        'INFO':     'green',
+        'WARNING':  'yellow',
+        'ERROR':    'red',
+        'CRITICAL': 'bold_red',
+    }
+)
+console_handler.setFormatter(color_formatter)
 logger.addHandler(console_handler)
 # -----------------------------
 
@@ -214,6 +227,7 @@ def handle_client(client_socket):
             update_user_status(username, 'offline')
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
             send_system_message(f"{username} a quitté le salon.")
+            logger.info(f"Utilisateur déconnecté : {username} depuis {address}")  # <-- Log déconnexion ici
         with LOCK:
             if client_socket in CLIENTS:
                 CLIENTS[client_socket]['connected'] = False
