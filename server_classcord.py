@@ -26,6 +26,7 @@ file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(mes
 logger.addHandler(file_handler)
 
 # --- Database functions ---
+
 def init_database():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         cursor = conn.cursor()
@@ -63,9 +64,7 @@ def check_user_password(username, password):
         cursor = conn.cursor()
         cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
         row = cursor.fetchone()
-        if row and row[0] == password:
-            return True
-        return False
+        return row is not None and row[0] == password
 
 def update_user_status(username, status):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
@@ -80,29 +79,27 @@ def list_online_users():
         rows = cursor.fetchall()
         return [r[0] for r in rows]
 
-# --- Broadcast and system messages ---
+# --- Communication helpers ---
+
 def broadcast(message, sender_socket=None):
     to_remove = []
     sender_channel = CLIENTS.get(sender_socket, {}).get('channel', 'general')
+    for client_socket, info in CLIENTS.items():
+        if not info.get('connected'):
+            continue
+        # envoi uniquement aux clients dans le même channel que l'émetteur (ou à tous si sender_socket None)
+        if sender_socket is None or info.get('channel', 'general') == sender_channel:
+            try:
+                client_socket.sendall((json.dumps(message) + '\n').encode())
+                with ADMIN_INPUT_LOCK:
+                    logger.info(f"[ENVOI #{info.get('channel', 'general')}] -> {info['username']}: {message.get('content', '')}")
+            except Exception as e:
+                with ADMIN_INPUT_LOCK:
+                    logger.error(f"[ERREUR ENVOI] {info.get('username', '?')}: {e}")
+                to_remove.append(client_socket)
     with LOCK:
-        for client_socket, info in list(CLIENTS.items()):
-            if not info.get('connected'):
-                continue
-            if sender_socket is None or info.get('channel', 'general') == sender_channel:
-                try:
-                    client_socket.sendall((json.dumps(message) + '\n').encode())
-                    with ADMIN_INPUT_LOCK:
-                        logger.info(f"[ENVOI #{info.get('channel', 'general')}] -> {info['username']}: {message.get('content', '')}")
-                except Exception as e:
-                    with ADMIN_INPUT_LOCK:
-                        logger.error(f"[ERREUR ENVOI] {info.get('username', '?')}: {e}")
-                    to_remove.append(client_socket)
         for sock in to_remove:
             CLIENTS[sock]['connected'] = False
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except:
-                pass
             try:
                 sock.close()
             except:
@@ -120,41 +117,30 @@ def send_system_message(content, channel='general'):
     broadcast(message)
 
 # --- Client handler ---
+
 def handle_client(client_socket):
-    client_socket.settimeout(600)  # Timeout 10 minutes pour éviter blocage infinie
     buffer = ''
     username = None
     address = client_socket.getpeername()
     with ADMIN_INPUT_LOCK:
         logger.info(f"Nouvelle connexion de {address}")
-    with LOCK:
-        CLIENTS[client_socket] = {'username': None, 'channel': 'general', 'connected': True}
     try:
         while True:
             try:
-                data = client_socket.recv(1024)
+                data = client_socket.recv(1024).decode()
                 if not data:
-                    # Connexion fermée côté client
-                    with ADMIN_INPUT_LOCK:
-                        logger.info(f"Connexion fermée par le client {address}")
+                    # Client a fermé proprement la connexion
                     break
-                data = data.decode()
-            except socket.timeout:
-                with ADMIN_INPUT_LOCK:
-                    logger.info(f"Timeout socket, fermeture de la connexion {address}")
-                break
             except (ConnectionResetError, ConnectionAbortedError):
                 with ADMIN_INPUT_LOCK:
                     logger.error(f"[DÉCONNEXION FORCÉE] {address}")
-                break
-            except Exception as e:
-                with ADMIN_INPUT_LOCK:
-                    logger.error(f"[ERREUR RECEPTION] {address}: {e}")
                 break
 
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
+                if not line.strip():
+                    continue
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
@@ -173,16 +159,14 @@ def handle_client(client_socket):
                             logger.info(f"Nouvel utilisateur inscrit : {msg.get('username', '')}")
                         response = {'type': 'register', 'status': 'ok'}
                     else:
-                        response = {'type': 'error', 'message': 'Username already exists.'}
+                        response = {'type': 'register', 'status': 'fail', 'message': 'Username already exists.'}
                     client_socket.sendall((json.dumps(response) + '\n').encode())
 
                 elif msg_type == 'login':
                     with LOCK:
                         if check_user_password(msg.get('username', ''), msg.get('password', '')):
                             username = msg['username']
-                            CLIENTS[client_socket]['username'] = username
-                            CLIENTS[client_socket]['channel'] = 'general'
-                            CLIENTS[client_socket]['connected'] = True
+                            CLIENTS[client_socket] = {'username': username, 'channel': 'general', 'connected': True}
                             update_user_status(username, 'online')
                             with ADMIN_INPUT_LOCK:
                                 logger.info(f"Utilisateur connecté : {username} depuis {address}")
@@ -197,7 +181,7 @@ def handle_client(client_socket):
 
                             send_system_message(f"{username} a rejoint le salon #general.")
                         else:
-                            client_socket.sendall((json.dumps({'type': 'error', 'message': 'Login failed.'}) + '\n').encode())
+                            client_socket.sendall((json.dumps({'type': 'login', 'status': 'fail', 'message': 'Login failed.'}) + '\n').encode())
 
                 elif msg_type == 'message' and username:
                     content = msg.get('content')
@@ -225,7 +209,6 @@ def handle_client(client_socket):
                     channel_name = msg.get('channel', 'general')
                     old_channel = CLIENTS[client_socket]['channel']
                     CLIENTS[client_socket]['channel'] = channel_name
-                    send_system_message(f"{username} a quitté #{old_channel}.")
                     send_system_message(f"{username} a rejoint #{channel_name}.", channel_name)
 
     except Exception as e:
@@ -239,15 +222,14 @@ def handle_client(client_socket):
         with LOCK:
             if client_socket in CLIENTS:
                 CLIENTS[client_socket]['connected'] = False
-        try:
-            client_socket.shutdown(socket.SHUT_RDWR)
-        except:
-            pass
-        client_socket.close()
-        with ADMIN_INPUT_LOCK:
-            logger.info(f"Connexion fermée proprement {address}")
+            try:
+                client_socket.shutdown(socket.SHUT_RDWR)
+            except:
+                pass
+            client_socket.close()
 
 # --- Admin interface ---
+
 def admin_interface():
     with ADMIN_INPUT_LOCK:
         print("[ADMIN] Interface admin démarrée")
@@ -313,11 +295,11 @@ def admin_interface():
             with ADMIN_INPUT_LOCK:
                 print("Choix invalide.")
 
-# --- Main server ---
+# --- Main server loop ---
+
 def main():
     init_database()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Permet de redémarrer vite
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
     with ADMIN_INPUT_LOCK:
@@ -325,12 +307,7 @@ def main():
     threading.Thread(target=admin_interface, daemon=True).start()
 
     while True:
-        try:
-            client_socket, addr = server_socket.accept()
-        except Exception as e:
-            with ADMIN_INPUT_LOCK:
-                logger.error(f"[ERREUR ACCEPT] {e}")
-            continue
+        client_socket, addr = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
 
 if __name__ == '__main__':
