@@ -6,46 +6,23 @@ import logging
 import sqlite3
 import time
 from datetime import datetime
-from colorlog import ColoredFormatter  # pip install colorlog
 
-LOG_FILE = '/home/louka/classcord-server/debug.log'
 DB_FILE = 'classcord.db'
-
 HOST = '0.0.0.0'
 PORT = 12345
 
-CLIENTS = {}  # socket: {'username': str, 'channel': str, 'connected': bool}
+CLIENTS = {}
 LOCK = threading.Lock()
 
-os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
-
-# --- CONFIGURATION LOGGING ---
+# --- LOGGING CONSOLE UNIQUEMENT ---
 logger = logging.getLogger("classcord")
 logger.setLevel(logging.DEBUG)
 
-# Fichier log (sans couleur)
-file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(file_handler)
-
-# Console avec couleur
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)  # Affiche tout DEBUG et plus
-color_formatter = ColoredFormatter(
-    "%(log_color)s%(asctime)s - %(levelname)s - %(message)s",
-    datefmt='%H:%M:%S',
-    log_colors={
-        'DEBUG':    'cyan',
-        'INFO':     'green',
-        'WARNING':  'yellow',
-        'ERROR':    'red',
-        'CRITICAL': 'bold_red',
-    }
-)
-console_handler.setFormatter(color_formatter)
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(console_handler)
-# -----------------------------
+# -----------------------------------
 
 def init_database():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
@@ -71,12 +48,8 @@ def init_database():
 
 def register_user(username, password):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO users (username, password, state, last_seen)
-                VALUES (?, ?, 'offline', datetime('now'))
-            """, (username, password))
+            conn.execute("INSERT INTO users (username, password, state, last_seen) VALUES (?, ?, 'offline', datetime('now'))", (username, password))
             conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -84,24 +57,17 @@ def register_user(username, password):
 
 def check_user_password(username, password):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
-        row = cursor.fetchone()
+        row = conn.execute("SELECT password FROM users WHERE username = ?", (username,)).fetchone()
         return row and row[0] == password
 
 def update_user_status(username, state):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE users SET state = ?, last_seen = datetime('now') WHERE username = ?
-        """, (state, username))
+        conn.execute("UPDATE users SET state = ?, last_seen = datetime('now') WHERE username = ?", (state, username))
         conn.commit()
 
 def list_online_users():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT username FROM users WHERE state = 'online'")
-        return [row[0] for row in cursor.fetchall()]
+        return [row[0] for row in conn.execute("SELECT username FROM users WHERE state = 'online'")]
 
 def broadcast(message, sender_socket=None):
     to_remove = []
@@ -109,12 +75,12 @@ def broadcast(message, sender_socket=None):
     for client_socket, info in CLIENTS.items():
         if not info.get('connected'):
             continue
-        if sender_socket is None or info.get('channel', 'general') == sender_channel:
+        if info.get('channel', 'general') == sender_channel:
             try:
                 client_socket.sendall((json.dumps(message) + '\n').encode())
-                logger.info(f"[ENVOI #{info.get('channel', 'general')}] -> {info['username']}: {message.get('content', '')}")
+                logger.info(f"[#{info.get('channel', 'general')}] {info['username']} -> {message.get('content', '')}")
             except Exception as e:
-                logger.error(f"[ERREUR ENVOI] {info.get('username', '?')}: {e}")
+                logger.warning(f"[ERREUR ENVOI] {info.get('username', '?')} -> {e}")
                 to_remove.append(client_socket)
     with LOCK:
         for sock in to_remove:
@@ -138,7 +104,7 @@ def handle_client(client_socket):
     buffer = ''
     username = None
     address = client_socket.getpeername()
-    logger.info(f"Nouvelle connexion de {address}")
+    logger.info(f"[NOUVELLE CONNEXION] {address}")
     try:
         while True:
             try:
@@ -147,7 +113,7 @@ def handle_client(client_socket):
                     time.sleep(0.1)
                     continue
             except (ConnectionResetError, ConnectionAbortedError):
-                logger.error(f"[DÉCONNEXION FORCÉE] {address}")
+                logger.warning(f"[FORCE DÉCONNEXION] {address}")
                 break
 
             buffer += data
@@ -156,7 +122,7 @@ def handle_client(client_socket):
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    logger.warning(f"[JSON MALFORMÉ] de {address} : {line}")
+                    logger.warning(f"[JSON MALFORMÉ] {address}: {line}")
                     client_socket.sendall((json.dumps({'type': 'error', 'message': 'Message JSON malformé.'}) + '\n').encode())
                     continue
 
@@ -166,7 +132,7 @@ def handle_client(client_socket):
                     with LOCK:
                         success = register_user(msg.get('username', ''), msg.get('password', ''))
                         if success:
-                            logger.info(f"Nouvel utilisateur inscrit : {msg.get('username', '')}")
+                            logger.info(f"[INSCRIPTION] {msg.get('username')}")
                             response = {'type': 'register', 'status': 'ok'}
                         else:
                             response = {'type': 'error', 'message': 'Username already exists.'}
@@ -178,16 +144,10 @@ def handle_client(client_socket):
                             username = msg['username']
                             CLIENTS[client_socket] = {'username': username, 'channel': 'general', 'connected': True}
                             update_user_status(username, 'online')
-                            logger.info(f"Utilisateur connecté : {username} depuis {address}")
+                            logger.info(f"[CONNEXION] {username} depuis {address}")
                             client_socket.sendall((json.dumps({'type': 'login', 'status': 'ok'}) + '\n').encode())
                             broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
-
-                            online_users = list_online_users()
-                            client_socket.sendall((json.dumps({
-                                'type': 'list_users',
-                                'users': online_users
-                            }) + '\n').encode())
-
+                            client_socket.sendall((json.dumps({'type': 'list_users', 'users': list_online_users()}) + '\n').encode())
                             send_system_message(f"{username} a rejoint le salon #general.")
                         else:
                             client_socket.sendall((json.dumps({'type': 'error', 'message': 'Login failed.'}) + '\n').encode())
@@ -196,29 +156,22 @@ def handle_client(client_socket):
                     content = msg.get('content')
                     if content:
                         channel = CLIENTS[client_socket]['channel']
-                        msg['from'] = username
-                        msg['timestamp'] = datetime.now().isoformat()
-                        msg['channel'] = channel
-
+                        timestamp = datetime.now().isoformat()
+                        msg.update({'from': username, 'timestamp': timestamp, 'channel': channel})
                         with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                INSERT INTO messages (sender, content, timestamp, channel)
-                                VALUES (?, ?, ?, ?)
-                            """, (username, content, msg['timestamp'], channel))
+                            conn.execute("INSERT INTO messages (sender, content, timestamp, channel) VALUES (?, ?, ?, ?)",
+                                         (username, content, timestamp, channel))
                             conn.commit()
-
                         broadcast(msg, sender_socket=client_socket)
 
                 elif msg_type == 'list_users':
-                    users = list_online_users()
-                    client_socket.sendall((json.dumps({'type': 'list_users', 'users': users}) + '\n').encode())
+                    client_socket.sendall((json.dumps({'type': 'list_users', 'users': list_online_users()}) + '\n').encode())
 
                 elif msg_type == 'join_channel' and username:
-                    channel_name = msg.get('channel', 'general')
+                    new_channel = msg.get('channel', 'general')
                     old_channel = CLIENTS[client_socket]['channel']
-                    CLIENTS[client_socket]['channel'] = channel_name
-                    send_system_message(f"{username} a rejoint #{channel_name}.", channel_name)
+                    CLIENTS[client_socket]['channel'] = new_channel
+                    send_system_message(f"{username} a rejoint #{new_channel}.", new_channel)
 
     except Exception as e:
         logger.error(f"[ERREUR] {address} ({username}): {e}")
@@ -227,23 +180,21 @@ def handle_client(client_socket):
             update_user_status(username, 'offline')
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
             send_system_message(f"{username} a quitté le salon.")
-            logger.info(f"Utilisateur déconnecté : {username} depuis {address}")  # <-- Log déconnexion ici
+            logger.info(f"[DÉCONNEXION] {username} ({address})")
         with LOCK:
-            if client_socket in CLIENTS:
-                CLIENTS[client_socket]['connected'] = False
-            try:
-                client_socket.shutdown(socket.SHUT_RDWR)
-            except:
-                pass
-            client_socket.close()
+            CLIENTS.pop(client_socket, None)
+        try:
+            client_socket.shutdown(socket.SHUT_RDWR)
+        except:
+            pass
+        client_socket.close()
 
 def main():
     init_database()
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
-    logger.info(f"Serveur démarré sur {HOST}:{PORT}")
-
+    logger.info(f"🎧 Serveur lancé sur {HOST}:{PORT}")
     while True:
         client_socket, addr = server_socket.accept()
         threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
