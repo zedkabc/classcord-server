@@ -186,7 +186,7 @@ def handle_admin_client(sock):
             if choice == '1':
                 list_users()
             elif choice == '2':
-                sock.sendall(b"Nom d'utilisateur à kicker : ")
+                sock.sendall(b"Nom d'utilisateur a kicker : ")
                 target = sock.recv(1024).decode().strip()
                 if not target:
                     continue
