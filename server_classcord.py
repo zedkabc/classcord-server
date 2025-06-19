@@ -18,12 +18,20 @@ LOCK = threading.Lock()
 
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler()]
-)
+# --- CONFIGURATION LOGGING MODIFIÉE ---
 logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)  # Affiche seulement INFO et plus dans la console
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(console_handler)
+# ---------------------------------------
 
 def init_database():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
