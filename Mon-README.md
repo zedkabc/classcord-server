@@ -194,7 +194,13 @@ CMD ["python", "server_classcord.py"]
 - Envoi de message global
 - Eteindre le serveur
 
+# JOUR 5
 
+## Tests croisés d’interopérabilité
+
+- Connexion des deux étudiants SLAM en simultané réussie
+- Fonctionnalités à jour
+- Logs cohérents, affichage client clair et réseau stable
 
 
 
