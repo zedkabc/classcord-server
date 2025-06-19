@@ -1,62 +1,63 @@
 import socket
 import json
 import os
+import time
 
-ADMIN_PORT = 54321
-ADMIN_HOST = "localhost"
+ADMIN_PORT = 54321  # Port pour communiquer avec le serveur (admin)
+
 
 def clear():
     os.system('clear' if os.name == 'posix' else 'cls')
 
-def send_admin_command_and_receive(command, data=None):
+
+def send_admin_command(command_type, data=None):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ADMIN_HOST, ADMIN_PORT))
-            msg = {'type': command}
+            s.connect(("localhost", ADMIN_PORT))
+            msg = {'type': command_type}
             if data:
                 msg.update(data)
             s.sendall((json.dumps(msg) + '\n').encode())
 
-            # Lire la réponse complète (en supposant une petite réponse)
-            response = ''
+            buffer = ''
             while True:
-                chunk = s.recv(4096).decode()
+                chunk = s.recv(1024).decode()
                 if not chunk:
                     break
-                response += chunk
-                # On s’arrête si on trouve la fin (ici pas de marqueur, on lit tout)
-                # Pour simplifier on suppose que le serveur ferme la connexion après la réponse
-            return response
-    except Exception as e:
-        return f"❌ Erreur lors de la communication avec le serveur admin : {e}"
+                buffer += chunk
+                if '\n' in buffer:
+                    break
 
-def parse_and_print_users(response):
-    try:
-        data = json.loads(response)
-        users = data.get('users', [])
-        if not users:
-            print("Aucun utilisateur connecté.\n")
-            return
-        print(f"{'Nom':<20} {'Statut':<10} Dernière activité")
-        print("-" * 50)
-        for user in users:
-            username = user.get('username', '???')
-            state = user.get('state', 'unknown')
-            last_seen = user.get('last_seen', '')
-            color = "\033[92m" if state == 'online' else "\033[91m"
-            print(f"{username:<20} {color}{state:<10}\033[0m {last_seen}")
-    except Exception:
-        # Si ce n’est pas JSON on affiche en brut
-        print(response)
+            line, _ = buffer.split('\n', 1)
+            return json.loads(line)
+    except Exception as e:
+        print(f"\n❌ Erreur de communication avec le serveur admin : {e}\n")
+        return None
+
+
+def fetch_users():
+    response = send_admin_command('list_users')
+    if response and 'users' in response:
+        return response['users']
+    return []
+
 
 def menu():
     while True:
         clear()
         print("=== 🎮 CLASSCORD - CONSOLE ADMIN ===\n")
-
-        # Demande liste utilisateurs connectes
-        response = send_admin_command_and_receive('list_users')
-        parse_and_print_users(response)
+        users = fetch_users()
+        if not users:
+            print("Aucun utilisateur enregistré.\n")
+        else:
+            print(f"{'Nom':<20} {'Statut':<10} Dernière activité")
+            print("-" * 50)
+            for user in users:
+                username = user.get('username')
+                state = user.get('state')
+                last_seen = user.get('last_seen')
+                color = "\033[92m" if state == 'online' else "\033[91m"
+                print(f"{username:<20} {color}{state:<10}\033[0m {last_seen}")
 
         print("\nOptions :")
         print("1. Rafraîchir")
@@ -69,33 +70,25 @@ def menu():
 
         if choice == '1':
             continue
-
         elif choice == '2':
             username = input("Nom d'utilisateur à kicker : ").strip()
-            resp = send_admin_command_and_receive('kick', {'target': username})
-            print(resp)
-
+            send_admin_command('kick', {'target': username})
         elif choice == '3':
             content = input("Message global : ").strip()
-            resp = send_admin_command_and_receive('broadcast', {'content': content})
-            print(resp)
-
+            send_admin_command('global_message', {'content': content})
         elif choice == '4':
             confirm = input("⚠️ Es-tu sûr de vouloir éteindre le serveur ? (oui/non): ").strip().lower()
             if confirm == 'oui':
-                resp = send_admin_command_and_receive('shutdown')
-                print(resp)
+                send_admin_command('shutdown')
                 print("🔻 Arrêt demandé.")
                 break
-
         elif choice == '0':
-            print("Au revoir.")
             break
-
         else:
             print("⛔ Choix invalide.")
 
         input("\nAppuie sur Entrée pour continuer...")
+
 
 if __name__ == '__main__':
     menu()
