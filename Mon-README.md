@@ -32,7 +32,7 @@
 
 - cd classcord-server
 
-### Lancer le serveur :
+### Lancer le serveur sans docker :
 
 - python3 server_classcord.py
 
@@ -120,9 +120,9 @@ CMD ["python", "server_classcord.py"]
 
 - sudo docker build -t classcord-server .
 
-### Test de l'image :
+### Test de l'image / Lancer le serveur avec Docker :
 
-- docker run -it --rm -p 12345:12345 classcord-server
+- docker run -it --rm -p 12345:12345 -p 54321:54321 classcord-server
 
 # Jour 3
 
@@ -182,11 +182,16 @@ CMD ["python", "server_classcord.py"]
 
 ## Création d'une interface admin 
 
+### Lancemement du menu admin :
+
+- Après avoir lancé le serveur, lancer la console admin : python3 admin_console.py
+
 ### Contenu du menu admin : 
 
+- Rafraîchir
 - Affichage des clients actifs sur le serveur
-- Envoi d'alerte globale
 - Bannissement d'un client
+- Envoi de message global
 - Eteindre le serveur
 
 
