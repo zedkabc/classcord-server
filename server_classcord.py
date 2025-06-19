@@ -1,9 +1,9 @@
 import socket
 import threading
 import json
-import os
 import sqlite3
 from datetime import datetime
+import os
 
 HOST = '0.0.0.0'
 USER_PORT = 12345
@@ -13,7 +13,6 @@ DB_FILE = 'classcord.db'
 CLIENTS = {}  # socket: {'username': str, 'connected': bool}
 LOCK = threading.Lock()
 
-# === Base SQLite ===
 def init_db():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
         c = conn.cursor()
@@ -56,7 +55,6 @@ def list_online_users():
         c.execute("SELECT username FROM users WHERE state='online'")
         return [r[0] for r in c.fetchall()]
 
-# === Broadcast ===
 def broadcast(message, exclude_socket=None):
     to_remove = []
     with LOCK:
@@ -75,12 +73,11 @@ def broadcast(message, exclude_socket=None):
             except:
                 pass
 
-# === Gestion clients utilisateurs ===
 def handle_user_client(sock):
     addr = sock.getpeername()
     buffer = ''
     username = None
-    print(f"[CONNEXION USER] Client connecté: {addr}")
+    print(f"[USER CONNECT] {addr}")
     try:
         while True:
             data = sock.recv(1024).decode()
@@ -92,89 +89,76 @@ def handle_user_client(sock):
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    sock.sendall(json.dumps({'type': 'error', 'message': 'JSON invalide'}).encode() + b'\n')
+                    sock.sendall(json.dumps({'type':'error','message':'Invalid JSON'}).encode()+b'\n')
                     continue
-
                 mtype = msg.get('type')
-
                 if mtype == 'register':
                     uname = msg.get('username')
                     pwd = msg.get('password')
                     with LOCK:
                         if register_user(uname, pwd):
-                            sock.sendall(json.dumps({'type': 'register', 'status': 'ok'}).encode() + b'\n')
-                            print(f"[REGISTER] {uname} enregistré")
+                            sock.sendall(json.dumps({'type':'register','status':'ok'}).encode()+b'\n')
+                            print(f"[REGISTER] {uname} registered")
                         else:
-                            sock.sendall(json.dumps({'type': 'error', 'message': 'Username déjà utilisé'}).encode() + b'\n')
-
+                            sock.sendall(json.dumps({'type':'error','message':'Username exists'}).encode()+b'\n')
                 elif mtype == 'login':
                     uname = msg.get('username')
                     pwd = msg.get('password')
                     with LOCK:
                         if check_user_password(uname, pwd):
                             username = uname
-                            CLIENTS[sock] = {'username': username, 'connected': True}
+                            CLIENTS[sock] = {'username':username, 'connected':True}
                             update_user_status(username, 'online')
-                            sock.sendall(json.dumps({'type': 'login', 'status': 'ok'}).encode() + b'\n')
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, exclude_socket=sock)
-                            print(f"[LOGIN] {username} connecté")
+                            sock.sendall(json.dumps({'type':'login','status':'ok'}).encode()+b'\n')
+                            broadcast({'type':'status','user':username,'state':'online'}, exclude_socket=sock)
+                            print(f"[LOGIN] {username} connected")
                         else:
-                            sock.sendall(json.dumps({'type': 'error', 'message': 'Échec du login'}).encode() + b'\n')
-
+                            sock.sendall(json.dumps({'type':'error','message':'Login failed'}).encode()+b'\n')
                 elif mtype == 'message':
                     if not username:
-                        sock.sendall(json.dumps({'type': 'error', 'message': 'Pas connecté'}).encode() + b'\n')
+                        sock.sendall(json.dumps({'type':'error','message':'Not logged in'}).encode()+b'\n')
                         continue
                     content = msg.get('content')
                     if content:
                         timestamp = datetime.now().isoformat()
-                        message_to_send = {
-                            'type': 'message',
-                            'from': username,
-                            'content': content,
-                            'timestamp': timestamp
-                        }
-                        broadcast(message_to_send, exclude_socket=None)
-
+                        message_to_send = {'type':'message','from':username,'content':content,'timestamp':timestamp}
+                        broadcast(message_to_send)
                 else:
-                    sock.sendall(json.dumps({'type': 'error', 'message': 'Commande inconnue'}).encode() + b'\n')
-
+                    sock.sendall(json.dumps({'type':'error','message':'Unknown command'}).encode()+b'\n')
     except Exception as e:
-        print(f"[ERREUR USER] Client {addr} ({username}): {e}")
-
+        print(f"[ERROR USER] {addr} ({username}): {e}")
     finally:
         if username:
             with LOCK:
                 update_user_status(username, 'offline')
                 CLIENTS.pop(sock, None)
-                broadcast({'type': 'status', 'user': username, 'state': 'offline'}, exclude_socket=sock)
+                broadcast({'type':'status','user':username,'state':'offline'}, exclude_socket=sock)
         try:
             sock.close()
         except:
             pass
-        print(f"[DECONNEXION USER] Client {addr} déconnecté")
+        print(f"[USER DISCONNECT] {addr}")
 
-# === Gestion console admin ===
 def handle_admin_client(sock):
     addr = sock.getpeername()
-    print(f"[CONNEXION ADMIN] Console admin connectée: {addr}")
+    print(f"[ADMIN CONNECT] {addr}")
 
     def send_menu():
-        menu = "\n=== MENU ADMIN ===\n" \
-               "1. Lister utilisateurs connectés\n" \
-               "2. Kicker un utilisateur\n" \
-               "3. Envoyer un message global\n" \
-               "4. Éteindre le serveur\n" \
-               "0. Quitter\n" \
-               "Choix : "
+        menu = ("\n=== ADMIN MENU ===\n"
+                "1. List users online\n"
+                "2. Kick user\n"
+                "3. Broadcast message\n"
+                "4. Shutdown server\n"
+                "0. Quit\n"
+                "Choice: ")
         sock.sendall(menu.encode())
 
     def list_users():
         users = list_online_users()
         if not users:
-            msg = "Aucun utilisateur connecté.\n"
+            msg = "No users connected.\n"
         else:
-            msg = "Utilisateurs connectés:\n" + "\n".join(users) + "\n"
+            msg = "Users connected:\n" + "\n".join(users) + "\n"
         sock.sendall(msg.encode())
 
     while True:
@@ -186,66 +170,59 @@ def handle_admin_client(sock):
             if choice == '1':
                 list_users()
             elif choice == '2':
-                sock.sendall(b"Nom d'utilisateur a kicker : ")
+                sock.sendall(b"Username to kick: ")
                 target = sock.recv(1024).decode().strip()
                 if not target:
                     continue
                 kicked_sock = None
                 with LOCK:
                     for s, info in CLIENTS.items():
-                        if info.get('username') == target and info.get('connected', False):
+                        if info.get('username') == target and info.get('connected'):
                             kicked_sock = s
                             break
                 if kicked_sock:
                     try:
-                        kicked_sock.sendall(json.dumps({'type': 'kick', 'message': 'Vous avez été expulsé par l’admin.'}).encode() + b'\n')
+                        kicked_sock.sendall(json.dumps({'type':'kick','message':'Kicked by admin.'}).encode()+b'\n')
                         CLIENTS[kicked_sock]['connected'] = False
                         kicked_sock.close()
-                        update_user_status(target, 'offline')
-                        broadcast({'type': 'system', 'content': f"{target} a été expulsé par l’admin."})
-                        sock.sendall(f"Utilisateur {target} expulsé.\n".encode())
-                    except Exception:
-                        sock.sendall(b"Erreur lors du kick.\n")
+                        update_user_status(target,'offline')
+                        broadcast({'type':'system','content':f"{target} kicked by admin."})
+                        sock.sendall(f"User {target} kicked.\n".encode())
+                    except:
+                        sock.sendall(b"Kick error.\n")
                 else:
-                    sock.sendall(b"Utilisateur non trouvé.\n")
-
+                    sock.sendall(b"User not found.\n")
             elif choice == '3':
-                sock.sendall(b"Message global à envoyer : ")
+                sock.sendall(b"Message to broadcast: ")
                 message = sock.recv(4096).decode().strip()
                 if message:
-                    broadcast({'type': 'system', 'content': f"ADMIN: {message}"})
-                    sock.sendall(b"Message envoyé.\n")
-
+                    broadcast({'type':'system','content':'ADMIN: '+message})
+                    sock.sendall(b"Message sent.\n")
             elif choice == '4':
-                broadcast({'type': 'system', 'content': 'Le serveur va s’éteindre.'})
+                broadcast({'type':'system','content':'Server shutting down.'})
                 for s in list(CLIENTS.keys()):
                     try:
-                        s.sendall(json.dumps({'type': 'shutdown', 'message': 'Serveur arrêté par admin.'}).encode() + b'\n')
+                        s.sendall(json.dumps({'type':'shutdown','message':'Server stopped by admin.'}).encode()+b'\n')
                         s.close()
                     except:
                         pass
-                sock.sendall(b"Serveur arrêté.\n")
-                print("[ARRET] Serveur arrêté par l’admin.")
+                sock.sendall(b"Server stopped.\n")
+                print("[SHUTDOWN] Server stopped by admin.")
                 os._exit(0)
-
             elif choice == '0':
-                sock.sendall(b"Au revoir.\n")
+                sock.sendall(b"Goodbye.\n")
                 break
-
             else:
-                sock.sendall(b"Choix invalide.\n")
-
+                sock.sendall(b"Invalid choice.\n")
         except Exception as e:
-            print(f"[ERREUR ADMIN] {addr}: {e}")
+            print(f"[ERROR ADMIN] {addr}: {e}")
             break
-
     try:
         sock.close()
     except:
         pass
-    print(f"[DECONNEXION ADMIN] Console admin déconnectée: {addr}")
+    print(f"[ADMIN DISCONNECT] {addr}")
 
-# === Main ===
 def main():
     init_db()
 
@@ -257,23 +234,22 @@ def main():
     admin_server.bind((HOST, ADMIN_PORT))
     admin_server.listen()
 
-    print(f"[DEMARRAGE] Serveur utilisateur sur {HOST}:{USER_PORT}")
-    print(f"[DEMARRAGE] Console admin sur {HOST}:{ADMIN_PORT}")
+    print(f"[START] User server on {HOST}:{USER_PORT}")
+    print(f"[START] Admin server on {HOST}:{ADMIN_PORT}")
 
     def accept_users():
         while True:
-            client_sock, addr = user_server.accept()
+            client_sock, _ = user_server.accept()
             threading.Thread(target=handle_user_client, args=(client_sock,), daemon=True).start()
 
     def accept_admins():
         while True:
-            admin_sock, addr = admin_server.accept()
+            admin_sock, _ = admin_server.accept()
             threading.Thread(target=handle_admin_client, args=(admin_sock,), daemon=True).start()
 
     threading.Thread(target=accept_users, daemon=True).start()
     threading.Thread(target=accept_admins, daemon=True).start()
 
-    # Garde le main thread vivant
     while True:
         threading.Event().wait(1)
 
