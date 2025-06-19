@@ -1,16 +1,14 @@
 import socket
 import json
-import os
 import time
+import os
 
-ADMIN_PORT = 54321  # Port pour communiquer avec le serveur (admin)
-
+ADMIN_PORT = 54321  # Port pour communiquer avec le serveur admin
 
 def clear():
     os.system('clear' if os.name == 'posix' else 'cls')
 
-
-def send_admin_command(command_type, data=None):
+def send_admin_command(command_type, data=None, expect_response=False):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(("localhost", ADMIN_PORT))
@@ -19,45 +17,37 @@ def send_admin_command(command_type, data=None):
                 msg.update(data)
             s.sendall((json.dumps(msg) + '\n').encode())
 
-            buffer = ''
-            while True:
-                chunk = s.recv(1024).decode()
-                if not chunk:
-                    break
-                buffer += chunk
-                if '\n' in buffer:
-                    break
-
-            line, _ = buffer.split('\n', 1)
-            return json.loads(line)
+            if expect_response:
+                buffer = ''
+                while True:
+                    chunk = s.recv(1024).decode()
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    if '\n' in buffer:
+                        line, _ = buffer.split('\n', 1)
+                        return json.loads(line)
     except Exception as e:
-        print(f"\n❌ Erreur de communication avec le serveur admin : {e}\n")
+        print(f"❌ Erreur en envoyant la commande admin : {e}")
         return None
-
-
-def fetch_users():
-    response = send_admin_command('list_users')
-    if response and 'users' in response:
-        return response['users']
-    return []
-
 
 def menu():
     while True:
         clear()
         print("=== 🎮 CLASSCORD - CONSOLE ADMIN ===\n")
-        users = fetch_users()
-        if not users:
-            print("Aucun utilisateur enregistré.\n")
+        
+        response = send_admin_command('get_users', expect_response=True)
+        if not response or 'users' not in response:
+            print("Aucun utilisateur enregistré ou erreur de connexion.\n")
         else:
-            print(f"{'Nom':<20} {'Statut':<10} Dernière activité")
-            print("-" * 50)
-            for user in users:
-                username = user.get('username')
-                state = user.get('state')
-                last_seen = user.get('last_seen')
-                color = "\033[92m" if state == 'online' else "\033[91m"
-                print(f"{username:<20} {color}{state:<10}\033[0m {last_seen}")
+            users = response['users']
+            if not users:
+                print("Aucun utilisateur connecté.\n")
+            else:
+                print(f"{'Nom':<20} {'Statut':<10}")
+                print("-" * 30)
+                for username in users:
+                    print(f"{username:<20} \033[92monline\033[0m")
 
         print("\nOptions :")
         print("1. Rafraîchir")
@@ -86,9 +76,7 @@ def menu():
             break
         else:
             print("⛔ Choix invalide.")
-
         input("\nAppuie sur Entrée pour continuer...")
-
 
 if __name__ == '__main__':
     menu()
