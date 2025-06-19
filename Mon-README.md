@@ -38,7 +38,7 @@
 
 ## Connexion pour un étudiant SLAM
 
-- Voici la procédure pour te connecter au serveur ClassCord hébergé sur ma machine :
+- Voici la procédure pour se connecter au serveur ClassCord hébergé sur ma machine :
 
 ### Prérequis :
 
@@ -47,14 +47,14 @@
 
 ### Infos du serveur :
 
-- Adresse IP : 10.0.108.144 (remplace si elle change)
+- Adresse IP : 10.0.108.??
 - Port : 12345
 
 ### Étapes de connexion :
 
 - Lancez votre client
 - Quand le programme vous demande l'adresse IP :
-- Tapez : 10.0.108.56
+- Tapez : 10.0.108.??
 - Quand il vous demande le port :
 - Tapez : 12345
 - Cliquez sur “Connexion” ou validez.
