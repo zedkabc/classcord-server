@@ -2,59 +2,36 @@ import socket
 import threading
 import json
 import os
-import logging
 import sqlite3
-import time
 from datetime import datetime
 
-DB_FILE = 'classcord.db'
 HOST = '0.0.0.0'
-PORT = 12345
-ADMIN_PORT = 54321  # Port spécial pour la console admin
+USER_PORT = 12345
+ADMIN_PORT = 54321
+DB_FILE = 'classcord.db'
 
-CLIENTS = {}  # socket: {'username': str, 'channel': str, 'connected': bool}
+CLIENTS = {}  # socket: {'username': str, 'connected': bool}
 LOCK = threading.Lock()
 
-# --- CONFIGURATION LOGGING ---
-logger = logging.getLogger("classcord")
-logger.setLevel(logging.DEBUG)
-
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(console_handler)
-# -----------------------------
-
-def init_database():
+# === Base SQLite ===
+def init_db():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
+        c = conn.cursor()
+        c.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 password TEXT NOT NULL,
                 state TEXT,
                 last_seen TEXT
-            );
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender TEXT,
-                content TEXT,
-                timestamp TEXT,
-                channel TEXT
-            );
+            )
         """)
         conn.commit()
 
 def register_user(username, password):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
+        c = conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO users (username, password, state, last_seen)
-                VALUES (?, ?, 'offline', datetime('now'))
-            """, (username, password))
+            c.execute("INSERT INTO users (username, password, state, last_seen) VALUES (?, ?, 'offline', datetime('now'))", (username, password))
             conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -62,209 +39,243 @@ def register_user(username, password):
 
 def check_user_password(username, password):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
-        row = cursor.fetchone()
+        c = conn.cursor()
+        c.execute("SELECT password FROM users WHERE username=?", (username,))
+        row = c.fetchone()
         return row and row[0] == password
 
 def update_user_status(username, state):
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE users SET state = ?, last_seen = datetime('now') WHERE username = ?
-        """, (state, username))
+        c = conn.cursor()
+        c.execute("UPDATE users SET state=?, last_seen=datetime('now') WHERE username=?", (state, username))
         conn.commit()
 
 def list_online_users():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT username FROM users WHERE state = 'online'")
-        return [row[0] for row in cursor.fetchall()]
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE state='online'")
+        return [r[0] for r in c.fetchall()]
 
-def broadcast(message, sender_socket=None):
+# === Broadcast ===
+def broadcast(message, exclude_socket=None):
     to_remove = []
-    sender_channel = CLIENTS.get(sender_socket, {}).get('channel', 'general')
-    for client_socket, info in CLIENTS.items():
-        if not info.get('connected'):
-            continue
-        if sender_socket is None or info.get('channel', 'general') == sender_channel:
-            try:
-                client_socket.sendall((json.dumps(message) + '\n').encode())
-                logger.info(f"[#{info['channel']}] {info['username']}: {message.get('content', '')}")
-            except Exception as e:
-                logger.error(f"[ERREUR ENVOI] {info.get('username', '?')}: {e}")
-                to_remove.append(client_socket)
     with LOCK:
-        for sock in to_remove:
-            CLIENTS[sock]['connected'] = False
+        for sock, info in CLIENTS.items():
+            if not info.get('connected', False):
+                continue
+            if sock != exclude_socket:
+                try:
+                    sock.sendall((json.dumps(message) + '\n').encode())
+                except Exception:
+                    to_remove.append(sock)
+        for s in to_remove:
+            CLIENTS[s]['connected'] = False
             try:
-                sock.close()
+                s.close()
             except:
                 pass
 
-def send_system_message(content, channel='general'):
-    message = {
-        'type': 'system',
-        'content': content,
-        'timestamp': datetime.now().isoformat(),
-        'channel': channel
-    }
-    logger.info(f"[SYSTEM #{channel}] {content}")
-    broadcast(message)
-
-def handle_client(client_socket):
+# === Gestion clients utilisateurs ===
+def handle_user_client(sock):
+    addr = sock.getpeername()
     buffer = ''
     username = None
-    address = client_socket.getpeername()
-    logger.info(f"Connexion de {address}")
+    print(f"[CONNEXION USER] Client connecté: {addr}")
     try:
         while True:
-            try:
-                data = client_socket.recv(1024).decode()
-                if not data:
-                    time.sleep(0.1)
-                    continue
-            except (ConnectionResetError, ConnectionAbortedError):
-                logger.warning(f"[DÉCONNEXION FORCÉE] {address}")
+            data = sock.recv(1024).decode()
+            if not data:
                 break
-
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    logger.warning(f"[JSON MALFORMÉ] de {address} : {line}")
-                    client_socket.sendall((json.dumps({'type': 'error', 'message': 'Message JSON malformé.'}) + '\n').encode())
+                    sock.sendall(json.dumps({'type': 'error', 'message': 'JSON invalide'}).encode() + b'\n')
                     continue
 
-                msg_type = msg.get('type')
+                mtype = msg.get('type')
 
-                if msg_type == 'register':
+                if mtype == 'register':
+                    uname = msg.get('username')
+                    pwd = msg.get('password')
                     with LOCK:
-                        success = register_user(msg.get('username', ''), msg.get('password', ''))
-                        if success:
-                            logger.info(f"Inscription : {msg.get('username', '')}")
-                            response = {'type': 'register', 'status': 'ok'}
+                        if register_user(uname, pwd):
+                            sock.sendall(json.dumps({'type': 'register', 'status': 'ok'}).encode() + b'\n')
+                            print(f"[REGISTER] {uname} enregistré")
                         else:
-                            response = {'type': 'error', 'message': 'Username already exists.'}
-                        client_socket.sendall((json.dumps(response) + '\n').encode())
+                            sock.sendall(json.dumps({'type': 'error', 'message': 'Username déjà utilisé'}).encode() + b'\n')
 
-                elif msg_type == 'login':
+                elif mtype == 'login':
+                    uname = msg.get('username')
+                    pwd = msg.get('password')
                     with LOCK:
-                        if check_user_password(msg.get('username', ''), msg.get('password', '')):
-                            username = msg['username']
-                            CLIENTS[client_socket] = {'username': username, 'channel': 'general', 'connected': True}
+                        if check_user_password(uname, pwd):
+                            username = uname
+                            CLIENTS[sock] = {'username': username, 'connected': True}
                             update_user_status(username, 'online')
-                            logger.info(f"{username} s'est connecté depuis {address}")
-                            client_socket.sendall((json.dumps({'type': 'login', 'status': 'ok'}) + '\n').encode())
-                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
-
-                            client_socket.sendall((json.dumps({
-                                'type': 'list_users',
-                                'users': list_online_users()
-                            }) + '\n').encode())
-
-                            send_system_message(f"{username} a rejoint le salon #general.")
+                            sock.sendall(json.dumps({'type': 'login', 'status': 'ok'}).encode() + b'\n')
+                            broadcast({'type': 'status', 'user': username, 'state': 'online'}, exclude_socket=sock)
+                            print(f"[LOGIN] {username} connecté")
                         else:
-                            client_socket.sendall((json.dumps({'type': 'error', 'message': 'Login failed.'}) + '\n').encode())
+                            sock.sendall(json.dumps({'type': 'error', 'message': 'Échec du login'}).encode() + b'\n')
 
-                elif msg_type == 'message' and username:
+                elif mtype == 'message':
+                    if not username:
+                        sock.sendall(json.dumps({'type': 'error', 'message': 'Pas connecté'}).encode() + b'\n')
+                        continue
                     content = msg.get('content')
                     if content:
-                        channel = CLIENTS[client_socket]['channel']
-                        msg['from'] = username
-                        msg['timestamp'] = datetime.now().isoformat()
-                        msg['channel'] = channel
+                        timestamp = datetime.now().isoformat()
+                        message_to_send = {
+                            'type': 'message',
+                            'from': username,
+                            'content': content,
+                            'timestamp': timestamp
+                        }
+                        broadcast(message_to_send, exclude_socket=None)
 
-                        with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                INSERT INTO messages (sender, content, timestamp, channel)
-                                VALUES (?, ?, ?, ?)
-                            """, (username, content, msg['timestamp'], channel))
-                            conn.commit()
-
-                        broadcast(msg, sender_socket=client_socket)
-
-                elif msg_type == 'list_users':
-                    client_socket.sendall((json.dumps({'type': 'list_users', 'users': list_online_users()}) + '\n').encode())
-
-                elif msg_type == 'join_channel' and username:
-                    channel_name = msg.get('channel', 'general')
-                    old_channel = CLIENTS[client_socket]['channel']
-                    CLIENTS[client_socket]['channel'] = channel_name
-                    send_system_message(f"{username} a rejoint #{channel_name}.", channel_name)
+                else:
+                    sock.sendall(json.dumps({'type': 'error', 'message': 'Commande inconnue'}).encode() + b'\n')
 
     except Exception as e:
-        logger.error(f"[ERREUR CLIENT] {address} ({username}): {e}")
+        print(f"[ERREUR USER] Client {addr} ({username}): {e}")
+
     finally:
         if username:
-            update_user_status(username, 'offline')
-            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
-            send_system_message(f"{username} a quitté le salon.")
-        with LOCK:
-            if client_socket in CLIENTS:
-                CLIENTS[client_socket]['connected'] = False
-            try:
-                client_socket.shutdown(socket.SHUT_RDWR)
-            except:
-                pass
-            client_socket.close()
-
-def admin_listener():
-    admin_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    admin_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    admin_socket.bind(('0.0.0.0', ADMIN_PORT))
-    admin_socket.listen(1)
-    logger.info("🛡️ Console admin active sur le port 54321")
-
-    while True:
-        conn, addr = admin_socket.accept()
-        data = ''
-        while True:
-            chunk = conn.recv(1024).decode()
-            if not chunk:
-                break
-            data += chunk
-            if '\n' in data:
-                break
+            with LOCK:
+                update_user_status(username, 'offline')
+                CLIENTS.pop(sock, None)
+                broadcast({'type': 'status', 'user': username, 'state': 'offline'}, exclude_socket=sock)
         try:
-            msg = json.loads(data.strip())
-            if msg['type'] == 'kick':
-                target = msg.get('target')
-                with LOCK:
-                    for sock, info in list(CLIENTS.items()):
-                        if info.get('username') == target:
-                            logger.info(f"🔨 Kick admin : {target}")
-                            sock.shutdown(socket.SHUT_RDWR)
-                            sock.close()
-                            info['connected'] = False
-                            break
-            elif msg['type'] == 'global_message':
-                content = msg.get('content')
-                if content:
-                    send_system_message(f"[ADMIN] {content}")
-            elif msg['type'] == 'shutdown':
-                logger.warning("⛔ Arrêt demandé par la console admin")
-                os._exit(0)
-        except Exception as e:
-            logger.error(f"[ADMIN ERREUR] : {e}")
-        finally:
-            conn.close()
+            sock.close()
+        except:
+            pass
+        print(f"[DECONNEXION USER] Client {addr} déconnecté")
 
-def main():
-    init_database()
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(5)
-    logger.info(f"📡 Serveur Classcord lancé sur {HOST}:{PORT}")
+# === Gestion console admin ===
+def handle_admin_client(sock):
+    addr = sock.getpeername()
+    print(f"[CONNEXION ADMIN] Console admin connectée: {addr}")
 
-    threading.Thread(target=admin_listener, daemon=True).start()
+    def send_menu():
+        menu = "\n=== MENU ADMIN ===\n" \
+               "1. Lister utilisateurs connectés\n" \
+               "2. Kicker un utilisateur\n" \
+               "3. Envoyer un message global\n" \
+               "4. Éteindre le serveur\n" \
+               "0. Quitter\n" \
+               "Choix : "
+        sock.sendall(menu.encode())
+
+    def list_users():
+        users = list_online_users()
+        if not users:
+            msg = "Aucun utilisateur connecté.\n"
+        else:
+            msg = "Utilisateurs connectés:\n" + "\n".join(users) + "\n"
+        sock.sendall(msg.encode())
 
     while True:
-        client_socket, addr = server_socket.accept()
-        threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
+        try:
+            send_menu()
+            choice = sock.recv(1024).decode().strip()
+            if not choice:
+                break
+            if choice == '1':
+                list_users()
+            elif choice == '2':
+                sock.sendall(b"Nom d'utilisateur à kicker : ")
+                target = sock.recv(1024).decode().strip()
+                if not target:
+                    continue
+                kicked_sock = None
+                with LOCK:
+                    for s, info in CLIENTS.items():
+                        if info.get('username') == target and info.get('connected', False):
+                            kicked_sock = s
+                            break
+                if kicked_sock:
+                    try:
+                        kicked_sock.sendall(json.dumps({'type': 'kick', 'message': 'Vous avez été expulsé par l’admin.'}).encode() + b'\n')
+                        CLIENTS[kicked_sock]['connected'] = False
+                        kicked_sock.close()
+                        update_user_status(target, 'offline')
+                        broadcast({'type': 'system', 'content': f"{target} a été expulsé par l’admin."})
+                        sock.sendall(f"Utilisateur {target} expulsé.\n".encode())
+                    except Exception:
+                        sock.sendall(b"Erreur lors du kick.\n")
+                else:
+                    sock.sendall(b"Utilisateur non trouvé.\n")
+
+            elif choice == '3':
+                sock.sendall(b"Message global à envoyer : ")
+                message = sock.recv(4096).decode().strip()
+                if message:
+                    broadcast({'type': 'system', 'content': f"ADMIN: {message}"})
+                    sock.sendall(b"Message envoyé.\n")
+
+            elif choice == '4':
+                broadcast({'type': 'system', 'content': 'Le serveur va s’éteindre.'})
+                for s in list(CLIENTS.keys()):
+                    try:
+                        s.sendall(json.dumps({'type': 'shutdown', 'message': 'Serveur arrêté par admin.'}).encode() + b'\n')
+                        s.close()
+                    except:
+                        pass
+                sock.sendall(b"Serveur arrêté.\n")
+                print("[ARRET] Serveur arrêté par l’admin.")
+                os._exit(0)
+
+            elif choice == '0':
+                sock.sendall(b"Au revoir.\n")
+                break
+
+            else:
+                sock.sendall(b"Choix invalide.\n")
+
+        except Exception as e:
+            print(f"[ERREUR ADMIN] {addr}: {e}")
+            break
+
+    try:
+        sock.close()
+    except:
+        pass
+    print(f"[DECONNEXION ADMIN] Console admin déconnectée: {addr}")
+
+# === Main ===
+def main():
+    init_db()
+
+    user_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    user_server.bind((HOST, USER_PORT))
+    user_server.listen()
+
+    admin_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    admin_server.bind((HOST, ADMIN_PORT))
+    admin_server.listen()
+
+    print(f"[DEMARRAGE] Serveur utilisateur sur {HOST}:{USER_PORT}")
+    print(f"[DEMARRAGE] Console admin sur {HOST}:{ADMIN_PORT}")
+
+    def accept_users():
+        while True:
+            client_sock, addr = user_server.accept()
+            threading.Thread(target=handle_user_client, args=(client_sock,), daemon=True).start()
+
+    def accept_admins():
+        while True:
+            admin_sock, addr = admin_server.accept()
+            threading.Thread(target=handle_admin_client, args=(admin_sock,), daemon=True).start()
+
+    threading.Thread(target=accept_users, daemon=True).start()
+    threading.Thread(target=accept_admins, daemon=True).start()
+
+    # Garde le main thread vivant
+    while True:
+        threading.Event().wait(1)
 
 if __name__ == '__main__':
     main()
