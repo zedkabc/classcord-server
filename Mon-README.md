@@ -180,7 +180,14 @@ CMD ["python", "server_classcord.py"]
 
 ### Généreration d'un fichier audit.log ou debug.log selon le niveau
 
+## Création d'une interface admin 
 
+### Contenu du menu admin : 
+
+- Affichage des clients actifs sur le serveur
+- Envoi d'alerte globale
+- Bannissement d'un client
+- Eteindre le serveur
 
 
 
