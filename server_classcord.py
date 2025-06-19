@@ -1,4 +1,3 @@
-# ... imports (inchangés) ...
 import socket
 import threading
 import json
@@ -16,11 +15,73 @@ PORT = 12345
 
 CLIENTS = {}
 LOCK = threading.Lock()
-ADMIN_INPUT_LOCK = threading.Lock()  # <-- ajouté ici
+ADMIN_INPUT_LOCK = threading.Lock()
 
-# ... logging setup (inchangé) ...
+# --- Logging setup ---
+logger = logging.getLogger("classcord-server")
+logger.setLevel(logging.DEBUG)
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
 
-# ... database functions (inchangées) ...
+# --- Database functions ---
+
+def init_database():
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT,
+            status TEXT
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT,
+            content TEXT,
+            timestamp TEXT,
+            channel TEXT
+        )
+        """)
+        conn.commit()
+    logger.info("Base de données initialisée.")
+
+def register_user(username, password):
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            return False
+        cursor.execute("INSERT INTO users (username, password, status) VALUES (?, ?, ?)", (username, password, 'offline'))
+        conn.commit()
+        return True
+
+def check_user_password(username, password):
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row and row[0] == password:
+            return True
+        return False
+
+def update_user_status(username, status):
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET status = ? WHERE username = ?", (status, username))
+        conn.commit()
+
+def list_online_users():
+    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM users WHERE status = 'online'")
+        rows = cursor.fetchall()
+        return [r[0] for r in rows]
+
+# --- Rest of your existing functions ---
 
 def broadcast(message, sender_socket=None):
     to_remove = []
