@@ -5,15 +5,22 @@ import pickle
 import os
 from datetime import datetime
 
-HOST = '0.0.0.0'
-PORT = 12345
-ADMIN_PORT = 54321
+# Configuration réseau
+HOST = '0.0.0.0'  # écoute toutes les interfaces
+PORT = 12345  # port pour les clients
+ADMIN_PORT = 54321  # port pour la console admin
 
+# Fichier de sauvegarde des utilisateurs
 USER_FILE = 'users.pkl'
+
+# Dictionnaires de suivi des connexions et identifiants
 CLIENTS = {}  # socket: username
 USERS = {}    # username: password
+
+# Verrou pour protéger l'accès concurrent aux données partagées
 LOCK = threading.Lock()
 
+# Chargement des utilisateurs depuis le fichier
 def load_users():
     global USERS
     if os.path.exists(USER_FILE):
@@ -21,11 +28,13 @@ def load_users():
             USERS = pickle.load(f)
     print(f"[INIT] Utilisateurs chargés: {list(USERS.keys())}")
 
+# Sauvegarde des utilisateurs dans le fichier
 def save_users():
     with open(USER_FILE, 'wb') as f:
         pickle.dump(USERS, f)
     print("[SAVE] Utilisateurs sauvegardés.")
 
+# Envoie un message à tous les clients connectés (sauf éventuellement l'expéditeur)
 def broadcast(message, sender_socket=None):
     msg_str = json.dumps(message) + '\n'
     for client_socket, username in list(CLIENTS.items()):
@@ -34,11 +43,13 @@ def broadcast(message, sender_socket=None):
                 client_socket.sendall(msg_str.encode())
                 print(f"[ENVOI] à {username} : {message}")
             except:
+                # Si l'envoi échoue, on déconnecte le client
                 with LOCK:
                     print(f"[ERREUR] Échec d'envoi à {username}. Déconnexion.")
                     CLIENTS.pop(client_socket, None)
                     client_socket.close()
 
+# Gère la communication avec un client connecté
 def handle_client(client_socket):
     buffer = ''
     username = None
@@ -55,6 +66,7 @@ def handle_client(client_socket):
                 msg = json.loads(line)
                 print(f"[RECU] {address} : {msg}")
 
+                # Inscription d'un nouvel utilisateur
                 if msg['type'] == 'register':
                     with LOCK:
                         if msg['username'] in USERS:
@@ -65,6 +77,7 @@ def handle_client(client_socket):
                             response = {'type': 'register', 'status': 'ok'}
                         client_socket.sendall((json.dumps(response) + '\n').encode())
 
+                # Connexion d'un utilisateur existant
                 elif msg['type'] == 'login':
                     with LOCK:
                         if USERS.get(msg['username']) == msg['password']:
@@ -78,6 +91,7 @@ def handle_client(client_socket):
                             response = {'type': 'error', 'message': 'Login failed.'}
                             client_socket.sendall((json.dumps(response) + '\n').encode())
 
+                # Réception d’un message à relayer
                 elif msg['type'] == 'message':
                     if not username:
                         username = msg.get('from', 'invité')
@@ -88,6 +102,7 @@ def handle_client(client_socket):
                     print(f"[MSG] {username} >> {msg['content']}")
                     broadcast(msg, client_socket)
 
+                # Mise à jour du statut (en ligne/hors ligne)
                 elif msg['type'] == 'status' and username:
                     broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
                     print(f"[STATUS] {username} est {msg['state']}")
@@ -95,6 +110,7 @@ def handle_client(client_socket):
     except Exception as e:
         print(f"[ERREUR] Client {address} ({username}) : {e}")
     finally:
+        # Déconnexion du client
         if username:
             broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
         with LOCK:
@@ -102,6 +118,7 @@ def handle_client(client_socket):
         client_socket.close()
         print(f"[DECONNEXION] {address} / {username}")
 
+# Démarre le serveur admin sur un port à part
 def handle_admin():
     admin_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     admin_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -112,6 +129,7 @@ def handle_admin():
         client, _ = admin_sock.accept()
         threading.Thread(target=handle_admin_connection, args=(client,), daemon=True).start()
 
+# Gère les commandes envoyées depuis la console admin
 def handle_admin_connection(client):
     buffer = ''
     try:
@@ -125,6 +143,7 @@ def handle_admin_connection(client):
                 msg = json.loads(line)
                 print(f"[ADMIN CMD] {msg}")
 
+                # Expulser un utilisateur
                 if msg['type'] == 'kick':
                     target = msg.get('target')
                     with LOCK:
@@ -139,6 +158,7 @@ def handle_admin_connection(client):
                                     print(f"[KICK-FAIL] Impossible d’expulser {target}")
                                 break
 
+                # Envoyer un message global (de l'admin)
                 elif msg['type'] == 'global_message':
                     content = msg.get('content', '')
                     if content:
@@ -150,10 +170,12 @@ def handle_admin_connection(client):
                         }
                         broadcast(global_msg)
 
+                # Arrêt du serveur sur demande admin
                 elif msg['type'] == 'shutdown':
                     print("[ARRET] Arrêt demandé par l'admin.")
                     os._exit(0)
 
+                # Récupérer la liste des utilisateurs connectés
                 elif msg['type'] == 'get_users':
                     with LOCK:
                         users = list(CLIENTS.values())
@@ -164,9 +186,10 @@ def handle_admin_connection(client):
     finally:
         client.close()
 
+# Point d’entrée principal du programme serveur
 def main():
     load_users()
-    threading.Thread(target=handle_admin, daemon=True).start()
+    threading.Thread(target=handle_admin, daemon=True).start()  # Lancer le serveur admin en parallèle
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
     server_socket.listen()
