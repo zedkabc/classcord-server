@@ -1,83 +1,190 @@
 import socket
 import threading
 import json
-import sqlite3
-from datetime import datetime
+import pickle
 import os
+from datetime import datetime
+import sqlite3
+import sys
+import time
 
 HOST = '0.0.0.0'
-USER_PORT = 12345
-ADMIN_PORT = 54321
+PORT = 12345         # port chat principal
+ADMIN_PORT = 54321   # port console admin
+
+USER_FILE = 'users.pkl'
 DB_FILE = 'classcord.db'
 
-CLIENTS = {}  # socket: {'username': str, 'connected': bool}
+CLIENTS = {}  # socket: username
 LOCK = threading.Lock()
+SERVER_RUNNING = True
+
+# --- Gestion base SQLite utilisateurs ---
 
 def init_db():
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("""
+        c.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
-                password TEXT NOT NULL,
+                password TEXT,
                 state TEXT,
                 last_seen TEXT
             )
-        """)
+        ''')
         conn.commit()
 
-def register_user(username, password):
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+def save_user_db(username, password, state='offline'):
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        try:
-            c.execute("INSERT INTO users (username, password, state, last_seen) VALUES (?, ?, 'offline', datetime('now'))", (username, password))
-            conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
-
-def check_user_password(username, password):
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        c = conn.cursor()
-        c.execute("SELECT password FROM users WHERE username=?", (username,))
-        row = c.fetchone()
-        return row and row[0] == password
-
-def update_user_status(username, state):
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
-        c = conn.cursor()
-        c.execute("UPDATE users SET state=?, last_seen=datetime('now') WHERE username=?", (state, username))
+        now = datetime.now().isoformat()
+        c.execute('''
+            INSERT OR REPLACE INTO users (username, password, state, last_seen)
+            VALUES (?, ?, ?, ?)
+        ''', (username, password, state, now))
         conn.commit()
+
+def update_user_state(username, state):
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        now = datetime.now().isoformat()
+        c.execute('''
+            UPDATE users SET state=?, last_seen=? WHERE username=?
+        ''', (state, now, username))
+        conn.commit()
+
+def get_user_password(username):
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('SELECT password FROM users WHERE username=?', (username,))
+        res = c.fetchone()
+        return res[0] if res else None
 
 def list_online_users():
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("SELECT username FROM users WHERE state='online'")
-        return [r[0] for r in c.fetchall()]
+        c.execute('SELECT username FROM users WHERE state="online" ORDER BY last_seen DESC')
+        return [row[0] for row in c.fetchall()]
 
-def broadcast(message, exclude_socket=None):
-    to_remove = []
+def get_users_info(usernames):
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        users_info = []
+        for u in usernames:
+            c.execute("SELECT state, last_seen FROM users WHERE username=?", (u,))
+            r = c.fetchone()
+            if r:
+                users_info.append({'username': u, 'state': r[0], 'last_seen': r[1]})
+        return users_info
+
+# --- Broadcast messages to all clients except sender ---
+def broadcast(message, sender_socket=None):
     with LOCK:
-        for sock, info in CLIENTS.items():
-            if not info.get('connected', False):
-                continue
-            if sock != exclude_socket:
+        for client_socket in list(CLIENTS.keys()):
+            if client_socket != sender_socket:
                 try:
-                    sock.sendall((json.dumps(message) + '\n').encode())
-                except Exception:
-                    to_remove.append(sock)
-        for s in to_remove:
-            CLIENTS[s]['connected'] = False
+                    client_socket.sendall((json.dumps(message) + '\n').encode())
+                except Exception as e:
+                    print(f"[ERREUR] Envoi à {CLIENTS[client_socket]} impossible : {e}")
+                    # On ferme la connexion si erreur
+                    client_socket.close()
+                    CLIENTS.pop(client_socket, None)
+
+def disconnect_user(username, reason="Kicked by admin"):
+    with LOCK:
+        to_kick = None
+        for sock, user in CLIENTS.items():
+            if user == username:
+                to_kick = sock
+                break
+        if to_kick:
             try:
-                s.close()
+                to_kick.sendall((json.dumps({'type':'kick', 'reason': reason})+'\n').encode())
             except:
                 pass
+            to_kick.close()
+            CLIENTS.pop(to_kick, None)
+            update_user_state(username, 'offline')
+            broadcast({'type': 'status', 'user': username, 'state': 'offline'})
+            print(f"[ADMIN] Utilisateur {username} déconnecté.")
 
-def handle_user_client(sock):
-    addr = sock.getpeername()
+def handle_client(client_socket):
     buffer = ''
     username = None
-    print(f"[USER CONNECT] {addr}")
+    address = client_socket.getpeername()
+    print(f"[CONNEXION] Nouvelle connexion depuis {address}")
+    try:
+        while True:
+            data = client_socket.recv(1024).decode()
+            if not data:
+                break
+            buffer += data
+            while '\n' in buffer:
+                line, buffer = buffer.split('\n', 1)
+                if not line.strip():
+                    continue
+                msg = json.loads(line)
+
+                if msg['type'] == 'register':
+                    uname = msg['username']
+                    pwd = msg['password']
+                    # check user exists
+                    if get_user_password(uname) is not None:
+                        response = {'type': 'error', 'message': 'Username already exists.'}
+                    else:
+                        save_user_db(uname, pwd, 'offline')
+                        response = {'type': 'register', 'status': 'ok'}
+                    client_socket.sendall((json.dumps(response) + '\n').encode())
+
+                elif msg['type'] == 'login':
+                    uname = msg['username']
+                    pwd = msg['password']
+                    stored_pwd = get_user_password(uname)
+                    if stored_pwd == pwd:
+                        username = uname
+                        with LOCK:
+                            CLIENTS[client_socket] = username
+                        update_user_state(username, 'online')
+                        response = {'type': 'login', 'status': 'ok'}
+                        client_socket.sendall((json.dumps(response) + '\n').encode())
+                        broadcast({'type': 'status', 'user': username, 'state': 'online'}, client_socket)
+                        print(f"[LOGIN] {username} connecté")
+                    else:
+                        response = {'type': 'error', 'message': 'Login failed.'}
+                        client_socket.sendall((json.dumps(response) + '\n').encode())
+
+                elif msg['type'] == 'message':
+                    if not username:
+                        username = msg.get('from', 'invité')
+                        with LOCK:
+                            CLIENTS[client_socket] = username
+                        print(f"[INFO] Connexion invitée détectée : {username}")
+                    msg['from'] = username
+                    msg['timestamp'] = datetime.now().isoformat()
+                    print(f"[MSG] {username} >> {msg['content']}")
+                    broadcast(msg, client_socket)
+
+                elif msg['type'] == 'status' and username:
+                    update_user_state(username, msg['state'])
+                    broadcast({'type': 'status', 'user': username, 'state': msg['state']}, client_socket)
+                    print(f"[STATUS] {username} est maintenant {msg['state']}")
+
+    except Exception as e:
+        print(f'[ERREUR] Problème avec {address} ({username}):', e)
+    finally:
+        if username:
+            update_user_state(username, 'offline')
+            broadcast({'type': 'status', 'user': username, 'state': 'offline'}, client_socket)
+        with LOCK:
+            CLIENTS.pop(client_socket, None)
+        client_socket.close()
+        print(f"[DECONNEXION] {address} déconnecté")
+
+# --- Admin server handler ---
+
+def handle_admin_client(sock, addr):
+    global SERVER_RUNNING
+    buffer = ''
     try:
         while True:
             data = sock.recv(1024).decode()
@@ -86,172 +193,94 @@ def handle_user_client(sock):
             buffer += data
             while '\n' in buffer:
                 line, buffer = buffer.split('\n', 1)
+                if not line.strip():
+                    continue
                 try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    sock.sendall(json.dumps({'type':'error','message':'Invalid JSON'}).encode()+b'\n')
+                    cmd = json.loads(line)
+                except Exception:
+                    sock.sendall(b'{"error":"JSON invalide"}\n')
                     continue
-                mtype = msg.get('type')
-                if mtype == 'register':
-                    uname = msg.get('username')
-                    pwd = msg.get('password')
-                    with LOCK:
-                        if register_user(uname, pwd):
-                            sock.sendall(json.dumps({'type':'register','status':'ok'}).encode()+b'\n')
-                            print(f"[REGISTER] {uname} registered")
-                        else:
-                            sock.sendall(json.dumps({'type':'error','message':'Username exists'}).encode()+b'\n')
-                elif mtype == 'login':
-                    uname = msg.get('username')
-                    pwd = msg.get('password')
-                    with LOCK:
-                        if check_user_password(uname, pwd):
-                            username = uname
-                            CLIENTS[sock] = {'username':username, 'connected':True}
-                            update_user_status(username, 'online')
-                            sock.sendall(json.dumps({'type':'login','status':'ok'}).encode()+b'\n')
-                            broadcast({'type':'status','user':username,'state':'online'}, exclude_socket=sock)
-                            print(f"[LOGIN] {username} connected")
-                        else:
-                            sock.sendall(json.dumps({'type':'error','message':'Login failed'}).encode()+b'\n')
-                elif mtype == 'message':
-                    if not username:
-                        sock.sendall(json.dumps({'type':'error','message':'Not logged in'}).encode()+b'\n')
-                        continue
-                    content = msg.get('content')
+
+                ctype = cmd.get('type')
+
+                if ctype == 'list_users':
+                    users = list_online_users()
+                    users_info = get_users_info(users)
+                    resp = json.dumps({'users': users_info}) + '\n'
+                    sock.sendall(resp.encode())
+
+                elif ctype == 'kick':
+                    target = cmd.get('target')
+                    if target:
+                        disconnect_user(target)
+                        sock.sendall(json.dumps({'result': f'Utilisateur {target} kické.'}).encode() + b'\n')
+                    else:
+                        sock.sendall(json.dumps({'error': 'Paramètre target manquant'}).encode() + b'\n')
+
+                elif ctype == 'broadcast':
+                    content = cmd.get('content')
                     if content:
-                        timestamp = datetime.now().isoformat()
-                        message_to_send = {'type':'message','from':username,'content':content,'timestamp':timestamp}
-                        broadcast(message_to_send)
+                        broadcast({'type': 'message', 'from': 'ADMIN', 'content': content, 'timestamp': datetime.now().isoformat()})
+                        sock.sendall(json.dumps({'result': 'Message global envoyé.'}).encode() + b'\n')
+                    else:
+                        sock.sendall(json.dumps({'error': 'Paramètre content manquant'}).encode() + b'\n')
+
+                elif ctype == 'shutdown':
+                    sock.sendall(json.dumps({'result': 'Arrêt du serveur en cours.'}).encode() + b'\n')
+                    print("[ADMIN] Arrêt du serveur demandé.")
+                    SERVER_RUNNING = False
+                    # On ferme la socket admin client pour libérer la boucle
+                    sock.close()
+                    return
+
                 else:
-                    sock.sendall(json.dumps({'type':'error','message':'Unknown command'}).encode()+b'\n')
+                    sock.sendall(json.dumps({'error': 'Commande inconnue'}).encode() + b'\n')
+
     except Exception as e:
-        print(f"[ERROR USER] {addr} ({username}): {e}")
+        print(f"[ADMIN] Erreur avec client admin {addr}: {e}")
     finally:
-        if username:
-            with LOCK:
-                update_user_status(username, 'offline')
-                CLIENTS.pop(sock, None)
-                broadcast({'type':'status','user':username,'state':'offline'}, exclude_socket=sock)
-        try:
-            sock.close()
-        except:
-            pass
-        print(f"[USER DISCONNECT] {addr}")
-
-def handle_admin_client(sock):
-    addr = sock.getpeername()
-    print(f"[ADMIN CONNECT] {addr}")
-
-    def send_menu():
-        menu = ("\n=== ADMIN MENU ===\n"
-                "1. List users online\n"
-                "2. Kick user\n"
-                "3. Broadcast message\n"
-                "4. Shutdown server\n"
-                "0. Quit\n"
-                "Choice: ")
-        sock.sendall(menu.encode())
-
-    def list_users():
-        users = list_online_users()
-        if not users:
-            msg = "No users connected.\n"
-        else:
-            msg = "Users connected:\n" + "\n".join(users) + "\n"
-        sock.sendall(msg.encode())
-
-    while True:
-        try:
-            send_menu()
-            choice = sock.recv(1024).decode().strip()
-            if not choice:
-                break
-            if choice == '1':
-                list_users()
-            elif choice == '2':
-                sock.sendall(b"Username to kick: ")
-                target = sock.recv(1024).decode().strip()
-                if not target:
-                    continue
-                kicked_sock = None
-                with LOCK:
-                    for s, info in CLIENTS.items():
-                        if info.get('username') == target and info.get('connected'):
-                            kicked_sock = s
-                            break
-                if kicked_sock:
-                    try:
-                        kicked_sock.sendall(json.dumps({'type':'kick','message':'Kicked by admin.'}).encode()+b'\n')
-                        CLIENTS[kicked_sock]['connected'] = False
-                        kicked_sock.close()
-                        update_user_status(target,'offline')
-                        broadcast({'type':'system','content':f"{target} kicked by admin."})
-                        sock.sendall(f"User {target} kicked.\n".encode())
-                    except:
-                        sock.sendall(b"Kick error.\n")
-                else:
-                    sock.sendall(b"User not found.\n")
-            elif choice == '3':
-                sock.sendall(b"Message to broadcast: ")
-                message = sock.recv(4096).decode().strip()
-                if message:
-                    broadcast({'type':'system','content':'ADMIN: '+message})
-                    sock.sendall(b"Message sent.\n")
-            elif choice == '4':
-                broadcast({'type':'system','content':'Server shutting down.'})
-                for s in list(CLIENTS.keys()):
-                    try:
-                        s.sendall(json.dumps({'type':'shutdown','message':'Server stopped by admin.'}).encode()+b'\n')
-                        s.close()
-                    except:
-                        pass
-                sock.sendall(b"Server stopped.\n")
-                print("[SHUTDOWN] Server stopped by admin.")
-                os._exit(0)
-            elif choice == '0':
-                sock.sendall(b"Goodbye.\n")
-                break
-            else:
-                sock.sendall(b"Invalid choice.\n")
-        except Exception as e:
-            print(f"[ERROR ADMIN] {addr}: {e}")
-            break
-    try:
         sock.close()
-    except:
-        pass
-    print(f"[ADMIN DISCONNECT] {addr}")
+
+def admin_server():
+    global SERVER_RUNNING
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((HOST, ADMIN_PORT))
+    server.listen()
+    print(f"[ADMIN] Serveur admin en écoute sur {HOST}:{ADMIN_PORT}")
+    while SERVER_RUNNING:
+        try:
+            sock, addr = server.accept()
+            threading.Thread(target=handle_admin_client, args=(sock, addr), daemon=True).start()
+        except Exception as e:
+            print("[ADMIN] Erreur accept:", e)
+    server.close()
+    print("[ADMIN] Serveur admin arrêté.")
 
 def main():
+    global SERVER_RUNNING
     init_db()
+    print("[INIT] Base de données initialisée.")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((HOST, PORT))
+    server_socket.listen()
+    print(f"[DEMARRAGE] Serveur en écoute sur {HOST}:{PORT}")
 
-    user_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    user_server.bind((HOST, USER_PORT))
-    user_server.listen()
+    threading.Thread(target=admin_server, daemon=True).start()
 
-    admin_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    admin_server.bind((HOST, ADMIN_PORT))
-    admin_server.listen()
-
-    print(f"[START] User server on {HOST}:{USER_PORT}")
-    print(f"[START] Admin server on {HOST}:{ADMIN_PORT}")
-
-    def accept_users():
-        while True:
-            client_sock, _ = user_server.accept()
-            threading.Thread(target=handle_user_client, args=(client_sock,), daemon=True).start()
-
-    def accept_admins():
-        while True:
-            admin_sock, _ = admin_server.accept()
-            threading.Thread(target=handle_admin_client, args=(admin_sock,), daemon=True).start()
-
-    threading.Thread(target=accept_users, daemon=True).start()
-    threading.Thread(target=accept_admins, daemon=True).start()
-
-    while True:
-        threading.Event().wait(1)
+    try:
+        while SERVER_RUNNING:
+            server_socket.settimeout(1.0)
+            try:
+                client_socket, addr = server_socket.accept()
+                threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
+            except socket.timeout:
+                continue
+    except KeyboardInterrupt:
+        print("\n[STOP] Arrêt demandé via clavier.")
+    finally:
+        SERVER_RUNNING = False
+        server_socket.close()
+        print("[STOP] Serveur arrêté.")
 
 if __name__ == '__main__':
     main()
