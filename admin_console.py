@@ -1,75 +1,92 @@
-import sqlite3
 import socket
 import json
-import time
-import os
 
-DB_FILE = 'classcord.db'
-ADMIN_PORT = 54321  # Port pour communiquer avec le serveur (admin)
+def afficher_menu(users):
+    print("\n= 🎮 CLASSCORD - CONSOLE ADMIN ===\n")
+    if not users:
+        print("Aucun utilisateur connecté.\n")
+    else:
+        print("Utilisateurs connectés :")
+        for u in users:
+            print(f"- {u}")
+        print()
+    print("Options :")
+    print("1. Rafraîchir la liste")
+    print("2. Kicker un utilisateur")
+    print("3. Envoyer un message global")
+    print("4. Éteindre le serveur")
+    print("0. Quitter\n")
 
-def clear():
-    os.system('clear' if os.name == 'posix' else 'cls')
+def envoyer_message(sock, data):
+    sock.sendall(json.dumps(data).encode() + b'\n')
 
-def fetch_users():
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT username, state, last_seen FROM users ORDER BY state DESC, last_seen DESC")
-        return cursor.fetchall()
-
-def send_admin_command(command_type, data=None):
+def recevoir_reponse(sock):
+    data = b''
+    while b'\n' not in data:
+        more = sock.recv(1024)
+        if not more:
+            break
+        data += more
+    if not data:
+        return None
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(("localhost", ADMIN_PORT))
-            msg = {'type': command_type}
-            if data:
-                msg.update(data)
-            s.sendall((json.dumps(msg) + '\n').encode())
-            print("✅ Commande envoyée.")
-    except Exception as e:
-        print(f"❌ Erreur en envoyant la commande admin : {e}")
+        return json.loads(data.decode().strip())
+    except:
+        return None
 
-def menu():
+def main():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(('localhost', 12345))
+
     while True:
-        clear()
-        print("=== 🎮 CLASSCORD - CONSOLE ADMIN ===\n")
-        users = fetch_users()
-        if not users:
-            print("Aucun utilisateur enregistré.\n")
-        else:
-            print(f"{'Nom':<20} {'Statut':<10} Dernière activité")
-            print("-" * 50)
-            for username, state, last_seen in users:
-                color = "\033[92m" if state == 'online' else "\033[91m"
-                print(f"{username:<20} {color}{state:<10}\033[0m {last_seen}")
-        
-        print("\nOptions :")
-        print("1. Rafraîchir")
-        print("2. Kicker un utilisateur")
-        print("3. Envoyer un message global")
-        print("4. Éteindre le serveur")
-        print("0. Quitter\n")
+        envoyer_message(s, {'type': 'list_users'})
+        response = recevoir_reponse(s)
 
-        choice = input("Choix : ").strip()
+        users = []
+        if response and response.get('type') == 'list_users':
+            users = response.get('users', [])
 
-        if choice == '1':
-            continue
-        elif choice == '2':
-            username = input("Nom d'utilisateur à kicker : ").strip()
-            send_admin_command('kick', {'target': username})
-        elif choice == '3':
-            content = input("Message global : ").strip()
-            send_admin_command('global_message', {'content': content})
-        elif choice == '4':
+        afficher_menu(users)
+
+        choix = input("Choix : ").strip()
+        if choix == '0':
+            print("Fermeture du client admin.")
+            break
+
+        elif choix == '1':
+            continue  # Rafraîchir (boucle relance)
+
+        elif choix == '2':
+            if not users:
+                print("Aucun utilisateur à kicker.")
+                continue
+            to_kick = input("Nom de l'utilisateur à kicker: ").strip()
+            if to_kick not in users:
+                print("Utilisateur non connecté.")
+                continue
+            envoyer_message(s, {'type': 'kick_user', 'username': to_kick})
+            reponse_kick = recevoir_reponse(s)
+            if reponse_kick and reponse_kick.get('type') == 'error':
+                print("Erreur:", reponse_kick.get('message'))
+
+        elif choix == '3':
+            msg = input("Message global à envoyer: ").strip()
+            if msg:
+                envoyer_message(s, {'type': 'global_message', 'content': msg})
+
+        elif choix == '4':
             confirm = input("⚠️ Es-tu sûr de vouloir éteindre le serveur ? (oui/non): ").strip().lower()
             if confirm == 'oui':
-                send_admin_command('shutdown')
-                print("🔻 Arrêt demandé.")
+                envoyer_message(s, {'type': 'shutdown'})
+                print("Commande arrêt envoyée.")
                 break
-        elif choice == '0':
-            break
+            else:
+                print("Annulé.")
+
         else:
-            print("⛔ Choix invalide.")
-        input("\nAppuie sur Entrée pour continuer...")
+            print("Option inconnue.")
+
+    s.close()
 
 if __name__ == '__main__':
-    menu()
+    main()
