@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 
 LOG_FILE = '/home/louka/classcord-server/debug.log'
+ADMIN_LOG_FILE = '/home/louka/classcord-server/admin_console.log'
 DB_FILE = 'classcord.db'
 
 HOST = '0.0.0.0'
@@ -18,8 +19,8 @@ LOCK = threading.Lock()
 
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
-# --- CONFIGURATION LOGGING MODIFIÉE ---
-logger = logging.getLogger()
+# --- CONFIGURATION LOGGING ---
+logger = logging.getLogger("classcord")
 logger.setLevel(logging.DEBUG)
 
 file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
@@ -27,11 +28,11 @@ file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_handler)
 
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)  # Affiche seulement INFO et plus dans la console
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(console_handler)
-# ---------------------------------------
+admin_handler = logging.FileHandler(ADMIN_LOG_FILE, encoding='utf-8')
+admin_handler.setLevel(logging.INFO)
+admin_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+logger.addHandler(admin_handler)
+# -----------------------------
 
 def init_database():
     with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
@@ -229,12 +230,12 @@ def admin_interface():
         print("1. Afficher clients actifs")
         print("2. Envoyer une alerte globale")
         print("3. Déconnecter un client")
-        print("4. Quitter le serveur")
+        print("4. Voir derniers logs")
+        print("5. Quitter le serveur")
         choice = input("Choix: ").strip()
 
         if choice == '1':
             with LOCK:
-                print(f"DEBUG: CLIENTS = {CLIENTS}")
                 actifs = [(sock, info) for sock, info in CLIENTS.items() if info.get('connected')]
                 if actifs:
                     for sock, info in actifs:
@@ -274,7 +275,18 @@ def admin_interface():
                         print(f"Client {username} déconnecté.")
                 except ValueError:
                     print("Entrée invalide.")
+
         elif choice == '4':
+            print("---- Derniers logs ----")
+            try:
+                with open(ADMIN_LOG_FILE, 'r') as f:
+                    lines = f.readlines()[-10:]
+                    for line in lines:
+                        print(line.strip())
+            except Exception as e:
+                print(f"Erreur lecture logs: {e}")
+
+        elif choice == '5':
             print("Fermeture du serveur...")
             os._exit(0)
         else:
