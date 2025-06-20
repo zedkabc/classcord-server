@@ -14,7 +14,7 @@
 - **Machine physique :** Windows 11
 - **VM :** Debian 12 sous VirtualBox
 - **Réseau :** Mode Accès NAT
-- **Python :** v3.13.5
+- **Python :** v3.11.2
 
 # Jour 1
 
@@ -47,30 +47,32 @@
 
 ### Infos du serveur :
 
-- Adresse IP : 10.0.108.??
+- Adresse IP : 10.0.108.???
 - Port : 12345
 
 ### Étapes de connexion :
 
 - Lancez votre client
 - Quand le programme vous demande l'adresse IP :
-- Tapez : 10.0.108.??
+- Tapez : 10.0.108.???
 - Quand il vous demande le port :
 - Tapez : 12345
-- Cliquez sur “Connexion” ou validez.
+- Inscrivez vous si vous n'êtes jamais venu sur le serveur depuis son lancement
+- Connectez-vous si vous vous êtes déjà allé sur le serveur depuis son lancement avec vos identifiants
+- Entrez-y en tant qu'invité si vous le souhaitez
 
-### Assurez-vous que :
+### Il faut être sûr que :
 
-- Vous êtes bien connecté au même réseau que la machine serveur (ex : même Wi-Fi)
-- Vous n’avez pas de pare-feu qui bloque la sortie (pare-feu personnel ou antivirus)
+- Le client est bien connecté au même réseau que la machine serveur (ex : même Wi-Fi)
+- Aucun pare-feu qui bloque la sortie (pare-feu personnel ou antivirus)
 - Le firewall (ufw) autorise les connexions entrantes sur ce port : sudo ufw allow 12345
-- Le serveur est sur écoute : sudo ss -tulpn | grep 12345
+- Le serveur soit sur écoute : sudo ss -tulpn | grep 12345
 
 # Jour 2
 
 ## Création d'utilisateur système 
 
-### Créer utilisateur :
+### Créer un utilisateur :
 
 - sudo useradd -m classcord
 - MDP : sudo passwd classcord : class89
@@ -116,11 +118,11 @@ RUN pip install --no-cache-dir -r requirements.txt || true
 EXPOSE 12345
 CMD ["python", "server_classcord.py"]
 
-### Construction de l'image Dockerfile :
+### Construction et mise à jour de l'image Dockerfile :
 
 - sudo docker build -t classcord-server .
 
-### Test de l'image / Lancer le serveur avec Docker :
+### Test de l'image et lancement du serveur avec Docker :
 
 - docker run -it --rm -p 12345:12345 -p 54321:54321 classcord-server
 
@@ -129,11 +131,6 @@ CMD ["python", "server_classcord.py"]
 ## Configuration de la journalisation des événements du serveur :
 
 - Remplacement des "print" du code par des "logging"
-
-## Mise en place de Fail2Ban :
-
-- sudo apt install fail2ban
-- sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
 
 ## Mise en place d'une stratégie de sauvegarde :
 
