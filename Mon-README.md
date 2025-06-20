@@ -132,6 +132,17 @@ CMD ["python", "server_classcord.py"]
 
 - Remplacement des "print" du code par des "logging"
 
+## Mise en place de fail2ban 
+
+### Installation :
+
+- sudo apt update
+- sudo apt install fail2ban
+
+### Activer le service :
+
+- sudo systemctl enable --now fail2ban
+
 ## Mise en place d'une stratégie de sauvegarde :
 
 - Sauvegarde du fichier user.plk dans classcord-server
