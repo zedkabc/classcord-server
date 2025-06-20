@@ -204,6 +204,10 @@ CMD ["python", "server_classcord.py"]
 
 ## Ajout de commentaires dans les scripts pour aider à la compréhension
 
+## Ajout de la fonction "Messages privés"
+
+- Modification du code dans la fonction "handle_client"
+
 # FIN DU PROJET
 
 
