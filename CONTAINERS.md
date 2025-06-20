@@ -33,7 +33,7 @@ docker run -it --rm -p 12345:12345 -p 54321:54321 classcord-server```
 
 ## Ports à exposer
 
-Le serveur utilise le port `12345` et '54321', mappé depuis le conteneur vers l'hôte :
+Le serveur utilise les ports '12345' et '54321', mappés depuis le conteneur vers l'hôte :
 
 ```
 HOST:12345  →  CONTAINER:12345  (Port principal du serveur)
